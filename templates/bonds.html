@@ -1,22 +1,167 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bonds - Know Your Investment</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Bonds - Know Your Investment</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <h1>Bond Analysis</h1>
+    <a class="back back-top" href="/">← Back to Home</a>
 
-    <label for="bond-type">Select Bond Type:</label>
-    <select id="bond-type" name="bond-type">
-        <option value="standard">Standard Bond</option>
-        <option value="european">European Bond</option>
-    </select>
+  <h1>Bond Analysis</h1>
 
-    <p>More fields will appear here once we work on calculations...</p>
+  <div class="container">
+    <!-- Inputs -->
+    <div class="grid">
+      <div class="row">
+        <label class="label" for="bond-type">Bond Type</label>
+        <select id="bond-type" class="select">
+          <option value="standard">Standard (fixed coupon)</option>
+          <option value="european">European (annual coupon)</option>
+          <option value="zero">Zero-coupon</option>
+        </select>
+      </div>
 
-    <a href="/">Back to Home</a>
+      <div class="row">
+        <label class="label" for="face">Face Value</label>
+        <input id="face" class="input" type="number" value="1000" step="50">
+      </div>
+
+      <div class="row">
+        <label class="label" for="coupon">Coupon Rate (%)</label>
+        <input id="coupon" class="input" type="number" value="5" step="0.25">
+      </div>
+
+      <div class="row">
+        <label class="label" for="years">Years to Maturity</label>
+        <input id="years" class="input" type="number" value="10" step="0.5">
+      </div>
+
+      <div class="row">
+        <label class="label" for="freq">Payments per Year</label>
+        <select id="freq" class="select">
+          <option value="1">Annual (1)</option>
+          <option value="2" selected>Semiannual (2)</option>
+          <option value="4">Quarterly (4)</option>
+          <option value="12">Monthly (12)</option>
+        </select>
+      </div>
+
+      <div class="row">
+        <label class="label" for="price">Price / Present Value ($)</label>
+        <input id="price" class="input" type="number" value="950" step="1">
+      </div>
+
+      <div class="row">
+        <label class="label" for="ytm">Yield to Maturity (%, annual)</label>
+        <input id="ytm" class="input" type="number" value="6" step="0.1">
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="btns">
+      <button class="btn primary" id="btn-price">Compute Present Value (given YTM)</button>
+      <button class="btn" id="btn-ytm">Compute YTM (given Price)</button>
+     
+    </div>
+
+    <!-- Stats -->
+    <div class="stats">
+      <div class="stat">
+        <div class="k">Coupon / period</div>
+        <div class="v" id="stat-cpn">$—</div>
+      </div>
+      <div class="stat">
+        <div class="k">Periods</div>
+        <div class="v" id="stat-n">—</div>
+      </div>
+      <div class="stat">
+        <div class="k">Current Yield</div>
+        <div class="v" id="stat-cy">—%</div>
+      </div>
+    </div>
+
+    <p class="note">
+      Notes: Current yield = annual coupon ÷ price. YTM is the discount rate that sets
+      PV(coupons + face) = price (assuming reinvestment at YTM and hold to maturity).
+    </p>
+  </div>
+
+  <script>
+    // ---------- helpers ----------
+    const $ = (id) => document.getElementById(id);
+    const round = (x, d=2) => Math.round(x * Math.pow(10, d)) / Math.pow(10, d);
+
+    function priceFromYield(face, couponPerPeriod, yPerPeriod, periods) {
+      if (periods <= 0) return face;
+      if (yPerPeriod === 0) return couponPerPeriod * periods + face;
+      const pvCoupons = couponPerPeriod * (1 - Math.pow(1 + yPerPeriod, -periods)) / yPerPeriod;
+      const pvFace = face * Math.pow(1 + yPerPeriod, -periods);
+      return pvCoupons + pvFace;
+    }
+
+    function ytmFromPrice(face, couponPerPeriod, periods, price, freq) {
+      // bisection on annualized yield in [0%, 100%]
+      let lo = 0, hi = 1.0; // 0.00 to 1.00 (i.e., 0% to 100%)
+      const target = price;
+      for (let i = 0; i < 80; i++) {
+        const mid = (lo + hi) / 2;
+        const yPer = mid / freq;
+        const p = priceFromYield(face, couponPerPeriod, yPer, periods);
+        if (p > target) lo = mid; else hi = mid;
+      }
+      return (lo + hi) / 2;
+    }
+
+    function computeDerived() {
+      const face = Number($('face').value);
+      const couponPct = Number($('coupon').value);
+      const years = Number($('years').value);
+      const freq = Number($('freq').value);
+      const type = $('bond-type').value;
+
+      const periods = Math.round(years * (type === 'european' ? 1 : freq));
+      const effectiveFreq = (type === 'european') ? 1 : freq;
+
+      const couponPerPeriod =
+        type === 'zero' ? 0 : (face * (couponPct / 100)) / effectiveFreq;
+
+      $('stat-cpn').textContent = '$' + round(couponPerPeriod, 2);
+      $('stat-n').textContent = periods;
+
+      return { face, couponPct, years, freq: effectiveFreq, periods, couponPerPeriod };
+    }
+
+    function updateCurrentYield() {
+      const { face, couponPct } = computeDerived();
+      const price = Number($('price').value);
+      const annualCoupon = (face * (couponPct / 100));
+      const cy = price > 0 ? (annualCoupon / price) * 100 : 0;
+      $('stat-cy').textContent = round(cy, 3) + '%';
+    }
+
+    // ---------- actions ----------
+    $('btn-price').addEventListener('click', () => {
+      const { face, periods, couponPerPeriod, freq } = computeDerived();
+      const ytmPct = Number($('ytm').value);
+      const yPer = (ytmPct / 100) / freq;
+      const p = priceFromYield(face, couponPerPeriod, yPer, periods);
+      $('price').value = round(p, 2);
+      updateCurrentYield();
+    });
+
+    $('btn-ytm').addEventListener('click', () => {
+      const { face, periods, couponPerPeriod, freq } = computeDerived();
+      const price = Number($('price').value);
+      const yAnnual = ytmFromPrice(face, couponPerPeriod, periods, price, freq);
+      $('ytm').value = round(yAnnual * 100, 3);
+      updateCurrentYield();
+    });
+
+    // init stats on load
+    computeDerived();
+    updateCurrentYield();
+  </script>
 </body>
 </html>

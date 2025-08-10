@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Stocks - Know Your Investment</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <a class="back back-top" href="/">← Back to Home</a>
+  <h1>Stock Analysis (3-Year Trailing)</h1>
+
+  <div class="container">
+    <form method="POST" class="grid">
+      <div class="row">
+        <label class="label" for="ticker">Ticker (e.g., AAPL, MSFT)</label>
+        <input id="ticker" name="ticker" class="input" value="{{ form.ticker or '' }}" required>
+      </div>
+
+      <div class="row">
+        <label class="label" for="amount">Investment Amount ($)</label>
+        <input id="amount" name="amount" class="input" type="number" step="1" value="{{ form.amount or 1000 }}" required>
+      </div>
+
+      <div class="row">
+        <label class="label" for="horizon">Holding Period (months)</label>
+        <input id="horizon" name="horizon" class="input" type="number" step="1" value="{{ form.horizon or 12 }}" required>
+      </div>
+
+      <div class="row">
+        <label class="label" for="benchmark">Benchmark (optional)</label>
+        <input id="benchmark" name="benchmark" class="input" placeholder="SPY">
+      </div>
+
+      <div class="row" style="grid-column: 1 / -1;">
+        <div class="btns">
+          <button class="btn primary" type="submit">Compute</button>
+        </div>
+      </div>
+    </form>
+
+    {% if error %}
+      <p class="note" style="color:#b00020">{{ error }}</p>
+    {% endif %}
+
+    {% if result %}
+      <div class="row" style="margin-top:18px">
+        <h3>{{ result.ticker }} — last {{ result.count }} months</h3>
+        <div class="stats">
+          <div class="stat">
+            <div class="k">Avg monthly (geometric)</div>
+            <div class="v">{{ (100*result.gmean)|round(2) }}%</div>
+          </div>
+          <div class="stat">
+            <div class="k">Avg monthly (arithmetic)</div>
+            <div class="v">{{ (100*result.amean)|round(2) }}%</div>
+          </div>
+          <div class="stat">
+            <div class="k">Monthly σ</div>
+            <div class="v">{{ (100*result.std)|round(2) }}%</div>
+          </div>
+        </div>
+
+        <div class="stats" style="margin-top:10px">
+          <div class="stat">
+            <div class="k">Annualized (geom)</div>
+            <div class="v">{{ (100*((1+result.gmean)**12 - 1))|round(2) }}%</div>
+          </div>
+          <div class="stat">
+            <div class="k">Projection — Base</div>
+            <div class="v">$ {{ result.proj_base.fv|round(2) }} (gain ${{ result.proj_base.gain|round(2) }})</div>
+          </div>
+          <div class="stat">
+            <div class="k">Projection — Range (±1σ)</div>
+            <div class="v">Low ${{ result.proj_low.fv|round(2) }} • High ${{ result.proj_high.fv|round(2) }}</div>
+          </div>
+        </div>
+
+        {% if result.bench %}
+          <p class="note">Benchmark {{ result.bench.symbol }} annualized (geom): {{ (100*((1+result.bench.gmean)**12 - 1))|round(2) }}%</p>
+        {% endif %}
+
+        <p class="note">
+          Uses adjusted closes and full months only. Geometric mean is used for compounding projections.
+          This is descriptive (past 3 years), not a forecast.
+        </p>
+      </div>
+    {% endif %}
+  </div>
+</body>
+</html>

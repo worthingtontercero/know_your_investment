@@ -1,27 +1,28 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Know Your Investment</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Know Your Investment</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <h1>Know Your Investment</h1>
+  <h1>Know Your Investment</h1>
 
-    <div class="options-container">
-        <div class="option-box" onclick="window.location.href='/bonds'">
-            <h2>Bonds</h2>
-            <p>Analyze and calculate bond yields</p>
-        </div>
-        <div class="option-box coming-soon">
-            <h2>Stocks</h2>
-            <p>Coming soon</p>
-        </div>
-        <div class="option-box coming-soon">
-            <h2>Precious Metals</h2>
-            <p>Coming soon</p>
-        </div>
+  <div class="options-container">
+    <div class="option-box" onclick="window.location.href='/bonds'">
+      <h2>Bonds</h2>
+      <p>Analyze and calculate bond yields</p>
     </div>
+    <div class="option-box" onclick="window.location.href='/stocks'">
+  <h2>Stocks</h2>
+  <p>Analyze average monthly return & projection</p>
+</div>
+
+    <div class="option-box coming-soon">
+      <h2>Precious Metals</h2>
+      <p>Coming soon</p>
+    </div>
+  </div>
 </body>
 </html>
