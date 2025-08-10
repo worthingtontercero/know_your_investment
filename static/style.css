@@ -1,0 +1,40 @@
+body {
+    font-family: Arial, sans-serif;
+    text-align: center;
+    background-color: #f5f5f5;
+    margin: 0;
+    padding: 0;
+}
+
+h1 {
+    margin-top: 30px;
+}
+
+.options-container {
+    display: flex;
+    justify-content: center;
+    margin-top: 50px;
+    gap: 30px;
+}
+
+.option-box {
+    background-color: white;
+    border: 2px solid #ccc;
+    border-radius: 10px;
+    padding: 30px;
+    width: 250px;
+    height: 200px;
+    box-shadow: 2px 2px 10px rgba(0,0,0,0.1);
+    cursor: pointer;
+    transition: 0.3s;
+}
+
+.option-box:hover {
+    transform: scale(1.05);
+    border-color: #007BFF;
+}
+
+.coming-soon {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
