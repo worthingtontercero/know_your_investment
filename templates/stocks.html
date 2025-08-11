@@ -8,8 +8,9 @@
 </head>
 <body>
   <a class="back back-top" href="/">← Back to Home</a>
-  <h1>Stock Analysis (3-Year Trailing)</h1>
-
+  <h1>Stock Analysis (Trailing Window)</h1>
+<a class="btn" href="{{ url_for('stocks_forecast') }}">Switch to Forecasting →</a>
+<a class="btn" href="{{ url_for('stocks_home') }}">← Stocks Options</a>
   <div class="container">
     <form method="POST" class="grid">
       <div class="row">
@@ -27,9 +28,19 @@
         <input id="horizon" name="horizon" class="input" type="number" step="1" value="{{ form.horizon or 12 }}" required>
       </div>
 
+      <!-- NEW: Lookback selector goes here -->
+      <div class="row">
+        <label class="label" for="lookback">Lookback (years)</label>
+        <select id="lookback" name="lookback" class="select">
+          <option value="3"  {% if form.lookback==3 %}selected{% endif %}>3</option>
+          <option value="5"  {% if form.lookback==5 %}selected{% endif %}>5</option>
+          <option value="10" {% if form.lookback==10 %}selected{% endif %}>10</option>
+        </select>
+      </div>
+
       <div class="row">
         <label class="label" for="benchmark">Benchmark (optional)</label>
-        <input id="benchmark" name="benchmark" class="input" placeholder="SPY">
+        <input id="benchmark" name="benchmark" class="input" placeholder="SPY" value="{{ form.benchmark or '' }}">
       </div>
 
       <div class="row" style="grid-column: 1 / -1;">
@@ -82,7 +93,7 @@
 
         <p class="note">
           Uses adjusted closes and full months only. Geometric mean is used for compounding projections.
-          This is descriptive (past 3 years), not a forecast.
+          This is descriptive (historical), not a forecast.
         </p>
       </div>
     {% endif %}

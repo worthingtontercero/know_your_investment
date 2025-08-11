@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Stocks — Choose a Tool</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <a class="back back-top" href="/">← Back to Home</a>
+  <h1>Stocks</h1>
+
+  <div class="container" style="text-align:center">
+    <p class="note" style="margin-bottom:16px">
+      Pick what you want to do. More tools coming soon.
+    </p>
+
+    <div class="options-container">
+      <a class="option-box" href="{{ url_for('stocks_trailing') }}">
+        <h2>Trailing Analysis</h2>
+        <p>3/5/10-year averages + projection</p>
+      </a>
+
+      <a class="option-box" href="{{ url_for('stocks_forecast') }}">
+        <h2>Forecasting (Monte Carlo)</h2>
+        <p>Probabilistic future value with CAPM blend</p>
+      </a>
+
+      <div class="option-box coming-soon">
+        <h2>DCA Simulator</h2>
+        <p>Monthly contributions (coming soon)</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

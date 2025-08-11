@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Stock Forecast — Know Your Investment</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <a class="back back-top" href="/">← Back to Home</a>
+  <h1>Stock Forecast (Monte Carlo)</h1>
+
+  <div class="container">
+    <form method="POST" class="grid">
+      <!-- Ticker -->
+      <div class="row">
+        <label class="label" for="ticker">
+          Ticker
+          <span class="help" tabindex="0" aria-label="Ticker help">i
+            <span class="bubble">Yahoo Finance symbol (adjusted prices). Examples: AAPL, MSFT, TSLA.</span>
+          </span>
+        </label>
+        <input id="ticker" name="ticker" class="input" value="{{ form.ticker or '' }}" required>
+      </div>
+
+      <!-- Amount -->
+      <div class="row">
+        <label class="label" for="amount">
+          Investment Amount ($)
+          <span class="help" tabindex="0" aria-label="Amount help">i
+            <span class="bubble">One-time lump sum invested at time 0. We simulate the distribution of its future value.</span>
+          </span>
+        </label>
+        <input id="amount" name="amount" class="input" type="number" step="1" value="{{ form.amount or 1000 }}" required>
+      </div>
+
+      <!-- Horizon -->
+      <div class="row">
+        <label class="label" for="horizon">
+          Horizon (months)
+          <span class="help" tabindex="0" aria-label="Horizon help">i
+            <span class="bubble">How many months ahead to simulate. We compound monthly log-returns for this length.</span>
+          </span>
+        </label>
+        <input id="horizon" name="horizon" class="input" type="number" step="1" value="{{ form.horizon or 12 }}" required>
+      </div>
+
+      <!-- Lookback -->
+      <div class="row">
+        <label class="label" for="lookback">
+          Lookback (years)
+          <span class="help" tabindex="0" aria-label="Lookback help">i
+            <span class="bubble">History used to estimate drift/volatility. Longer = smoother, but can mix past regimes.</span>
+          </span>
+        </label>
+        <select id="lookback" name="lookback" class="select">
+          <option value="3"  {% if form.lookback==3 %}selected{% endif %}>3</option>
+          <option value="5"  {% if form.lookback==5 %}selected{% endif %}>5</option>
+          <option value="10" {% if form.lookback==10 %}selected{% endif %}>10</option>
+        </select>
+      </div>
+
+      <!-- Benchmark -->
+      <div class="row">
+        <label class="label" for="benchmark">
+          Benchmark (for &beta;, optional)
+          <span class="help" tabindex="0" aria-label="Benchmark help">i
+            <span class="bubble">Used to estimate beta (&beta;). CAPM drift = R<sub>f</sub> + &beta;&middot;ERP. Default SPY if blank.</span>
+          </span>
+        </label>
+        <input id="benchmark" name="benchmark" class="input" value="{{ form.benchmark or 'SPY' }}">
+      </div>
+
+      <!-- Risk-free -->
+      <div class="row">
+        <label class="label" for="rf">
+          Risk-free (annual %, CAPM)
+          <span class="help" tabindex="0" aria-label="Risk-free help">i
+            <span class="bubble">Annual risk-free rate (e.g., T-bill). Converted to a monthly rate inside the model.</span>
+          </span>
+        </label>
+        <input id="rf" name="rf" class="input" type="number" step="0.01" value="{{ form.rf or 3.0 }}">
+      </div>
+
+      <!-- ERP -->
+      <div class="row">
+        <label class="label" for="erp">
+          Equity Risk Premium (annual %, CAPM)
+          <span class="help" tabindex="0" aria-label="ERP help">i
+            <span class="bubble">Expected market excess return over the risk-free rate. Typical long-run values ~4–6%.</span>
+          </span>
+        </label>
+        <input id="erp" name="erp" class="input" type="number" step="0.01" value="{{ form.erp or 5.0 }}">
+      </div>
+
+      <!-- Blend -->
+      <div class="row">
+        <label class="label" for="blend">
+          Blend CAPM vs Historical (%, CAPM weight)
+          <span class="help" tabindex="0" aria-label="Blend help">i
+            <span class="bubble">0% = use only historical log-mean; 100% = only CAPM log-mean. We linearly blend the two drifts.</span>
+          </span>
+        </label>
+        <input id="blend" name="blend" class="input" type="number" step="1" value="{{ form.blend or 50 }}">
+      </div>
+
+      <!-- Sims -->
+      <div class="row">
+        <label class="label" for="sims">
+          Simulations
+          <span class="help" tabindex="0" aria-label="Simulations help">i
+            <span class="bubble">Number of Monte Carlo paths. More = smoother percentiles, but slower (5,000 is a good default).</span>
+          </span>
+        </label>
+        <input id="sims" name="sims" class="input" type="number" step="100" value="{{ form.sims or 5000 }}">
+      </div>
+
+      <!-- Actions -->
+      <div class="row" style="grid-column: 1 / -1;">
+        <div class="btns">
+          <button class="btn primary" type="submit">Run Forecast</button>
+          <a class="btn" href="{{ url_for('stocks_trailing') }}">← Switch to Trailing Page</a>
+          <a class="btn" href="{{ url_for('stocks_home') }}">Stocks Options</a>
+        </div>
+      </div>
+    </form>
+
+    {% if error %}
+      <p class="note" style="color:#b00020">{{ error }}</p>
+    {% endif %}
+
+    {% if result %}
+      <div class="row" style="margin-top:18px">
+        <h3>{{ result.ticker }} — {{ result.count }} months used (lookback {{ result.lookback }}y)</h3>
+
+        <div class="stats">
+          <div class="stat">
+            <div class="k">Hist log-mean (monthly)</div>
+            <div class="v">{{ (100*result.hist.m_log)|round(2) }}%</div>
+          </div>
+          <div class="stat">
+            <div class="k">Hist &sigma; (monthly, log)</div>
+            <div class="v">{{ (100*result.hist.s_log)|round(2) }}%</div>
+          </div>
+          <div class="stat">
+            <div class="k">&beta; vs {{ result.beta.bench or '—' }}</div>
+            <div class="v">{{ result.beta.value is not none and (result.beta.value|round(2)) or '—' }}</div>
+          </div>
+        </div>
+
+        <div class="stats" style="margin-top:10px">
+          <div class="stat">
+            <div class="k">CAPM (monthly, arithmetic)</div>
+            <div class="v">{{ (100*result.capm.e_m_arith)|round(2) }}%</div>
+          </div>
+          <div class="stat">
+            <div class="k">CAPM (monthly, log)</div>
+            <div class="v">{{ (100*result.capm.m_log)|round(2) }}%</div>
+          </div>
+          <div class="stat">
+            <div class="k">Blend weight (CAPM)</div>
+            <div class="v">{{ result.blend }}%</div>
+          </div>
+        </div>
+
+        <div class="stats" style="margin-top:10px">
+          <div class="stat">
+            <div class="k">Forecast FV — Median</div>
+            <div class="v">$ {{ result.forecast.fv_p50|round(2) }}</div>
+          </div>
+          <div class="stat">
+            <div class="k">Forecast FV — 5% / 95%</div>
+            <div class="v">$ {{ result.forecast.fv_p05|round(2) }} • $ {{ result.forecast.fv_p95|round(2) }}</div>
+          </div>
+          <div class="stat">
+            <div class="k">Annualized (from median)</div>
+            <div class="v">{{ (100*result.forecast.annualized_med)|round(2) }}%</div>
+          </div>
+        </div>
+
+        <p class="note">
+          Monte Carlo with {{ result.sims }} paths. Drift = {{ result.blend }}% CAPM log-mean +
+          {{ 100 - result.blend }}% historical log-mean; volatility = historical monthly log &sigma;.
+          This is a model, not advice.
+        </p>
+      </div>
+    {% endif %}
+
+    <!-- Glossary (always visible) -->
+    <div class="glossary">
+      <dl>
+        <dt>CAPM</dt>
+        <dd>
+          Capital Asset Pricing Model. Expected return:
+          <code>E[R] = R<sub>f</sub> + &beta;&middot;(E[R_m] - R<sub>f</sub>)</code>.
+          We convert this annual expectation to a monthly <em>log</em> mean for compounding.
+        </dd>
+
+        <dt>&beta; (beta)</dt>
+        <dd>
+          Sensitivity to the market:
+          <code>&beta; = cov(R_i, R_m) / var(R_m)</code>. &beta; &gt; 1 ⇒ moves more than the market; &beta; &lt; 1 ⇒ less.
+        </dd>
+
+        <dt>Risk-free rate (R<sub>f</sub>)</dt>
+        <dd>
+          Baseline return with (assumed) no risk, e.g., short-term T-bills.
+        </dd>
+
+        <dt>Equity Risk Premium (ERP)</dt>
+        <dd>
+          The market’s expected return above the risk-free rate: <code>E[R_m] - R<sub>f</sub></code>.
+        </dd>
+      </dl>
+    </div>
+  </div>
+</body>
+</html>
