@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>DCA & Goal Tracker — Know Your Investment</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <a class="back back-top" href="/">← Back to Home</a>
+  <a class="back back-top corner-right" href="{{ url_for('stocks_forecast') }}">← Lump-Sum Forecast</a>
+  <h1>Monthly Contributions & Goal Tracker</h1>
+
+  <div class="container">
+    <form method="POST" class="grid">
+      <div class="row">
+        <label class="label" for="ticker">Ticker</label>
+        <input id="ticker" name="ticker" class="input" value="{{ form.ticker or '' }}" required>
+      </div>
+
+      <div class="row">
+        <label class="label" for="initial">Initial lump sum ($)</label>
+        <input id="initial" name="initial" class="input" type="number" step="1" value="{{ form.initial or 0 }}">
+      </div>
+
+      <div class="row">
+        <label class="label" for="monthly">Monthly contribution ($)</label>
+        <input id="monthly" name="monthly" class="input" type="number" step="1" value="{{ form.monthly or 200 }}" required>
+      </div>
+
+      <div class="row">
+        <label class="label" for="months">Months to invest</label>
+        <input id="months" name="months" class="input" type="number" step="1" value="{{ form.months or 24 }}" required>
+      </div>
+
+      <div class="row">
+        <label class="label" for="lookback">Lookback (years)</label>
+        <select id="lookback" name="lookback" class="select">
+          <option value="3"  {% if form.lookback==3 %}selected{% endif %}>3</option>
+          <option value="5"  {% if form.lookback==5 %}selected{% endif %}>5</option>
+          <option value="10" {% if form.lookback==10 %}selected{% endif %}>10</option>
+        </select>
+      </div>
+
+      <div class="row">
+        <label class="label" for="timing">Contribution timing</label>
+        <select id="timing" name="timing" class="select">
+          <option value="EOM" {% if form.timing=='EOM' %}selected{% endif %}>End of month (after growth)</option>
+          <option value="BOM" {% if form.timing=='BOM' %}selected{% endif %}>Beginning of month (before growth)</option>
+        </select>
+      </div>
+
+      <div class="row">
+        <label class="label" for="benchmark">Benchmark (for beta, optional)</label>
+        <input id="benchmark" name="benchmark" class="input" value="{{ form.benchmark or 'SPY' }}">
+      </div>
+
+      <div class="row">
+        <label class="label" for="rf">Risk-free (annual %, for CAPM drift)</label>
+        <input id="rf" name="rf" class="input" type="number" step="0.01" value="{{ form.rf or 3.0 }}">
+      </div>
+
+      <div class="row">
+        <label class="label" for="erp">Equity risk premium (annual %)</label>
+        <input id="erp" name="erp" class="input" type="number" step="0.01" value="{{ form.erp or 5.0 }}">
+      </div>
+
+      <div class="row">
+        <label class="label" for="blend">Blend CAPM vs history (%, CAPM weight)</label>
+        <input id="blend" name="blend" class="input" type="number" step="1" value="{{ form.blend or 50 }}">
+      </div>
+
+      <div class="row">
+        <label class="label" for="sims">Simulations</label>
+        <input id="sims" name="sims" class="input" type="number" step="100" value="{{ form.sims or 5000 }}">
+      </div>
+
+      <div class="row">
+        <label class="label" for="goal">Goal amount ($, optional)</label>
+        <input id="goal" name="goal" class="input" type="number" step="1" value="{{ form.goal or '' }}">
+      </div>
+
+      <div class="row">
+        <label class="label" for="conf">Confidence for goal (%)</label>
+        <input id="conf" name="conf" class="input" type="number" step="1" value="{{ form.conf or 80 }}">
+      </div>
+
+      <div class="row" style="grid-column: 1 / -1;">
+        <div class="btns">
+          <button class="btn primary" type="submit">Run DCA Forecast</button>
+          <a class="btn" href="{{ url_for('stocks_home') }}">Stocks Options</a>
+        </div>
+      </div>
+    </form>
+
+    {% if error %}
+      <p class="note" style="color:#b00020">{{ error }}</p>
+    {% endif %}
+
+    {% if result %}
+      <div class="row" style="margin-top:16px">
+        <h3>{{ result.ticker }} — {{ result.count }} months used (lookback {{ result.lookback }}y, {{ result.timing }})</h3>
+
+        <div class="stats">
+          <div class="stat">
+            <div class="k">Median future value</div>
+            <div class="v">$ {{ result.forecast.fv_p50|round(2) }}</div>
+          </div>
+          <div class="stat">
+            <div class="k">Range (5%–95%)</div>
+            <div class="v">$ {{ result.forecast.fv_p05|round(2) }} • $ {{ result.forecast.fv_p95|round(2) }}</div>
+          </div>
+          <div class="stat">
+            <div class="k">Total invested (initial + monthly)</div>
+            <div class="v">$ {{ result.invested|round(2) }}</div>
+          </div>
+        </div>
+
+        {% if result.forecast.prob_goal is not none %}
+          <div class="stats" style="margin-top:10px">
+            <div class="stat">
+              <div class="k">Chance to reach goal</div>
+              <div class="v">{{ (100*result.forecast.prob_goal)|round(1) }}%</div>
+            </div>
+            <div class="stat">
+              <div class="k">Required monthly for {{ result.conf }}% chance</div>
+              <div class="v">$ {{ result.forecast.required_monthly|round(2) }}</div>
+            </div>
+          </div>
+        {% endif %}
+
+        <p class="note">
+          We simulate monthly returns many times using a drift that blends history with a market model,
+          then apply your contributions each month. Results are ranges, not promises.
+        </p>
+      </div>
+    {% endif %}
+  </div>
+</body>
+</html>

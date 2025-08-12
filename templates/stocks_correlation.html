@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Stock Correlation — Know Your Investment</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <a class="back back-top" href="/">← Back to Home</a>
+  <h1>Correlation & Diversification</h1>
+
+  <div class="container">
+    <form method="POST" class="grid">
+      <div class="row">
+        <label class="label" for="tickers">Tickers (comma or space separated)</label>
+        <input id="tickers" name="tickers" class="input" placeholder="AAPL, MSFT, AMZN, GOOG" value="{{ form.tickers or '' }}" required>
+      </div>
+
+      <div class="row">
+        <label class="label" for="lookback">Lookback (years)</label>
+        <select id="lookback" name="lookback" class="select">
+          <option value="3"  {% if form.lookback==3 %}selected{% endif %}>3</option>
+          <option value="5"  {% if form.lookback==5 %}selected{% endif %}>5</option>
+          <option value="10" {% if form.lookback==10 %}selected{% endif %}>10</option>
+        </select>
+      </div>
+
+      <div class="row">
+        <label class="label" for="freq">Return Frequency</label>
+        <select id="freq" name="freq" class="select">
+          <option value="M" {% if form.freq=='M' %}selected{% endif %}>Monthly (end of month)</option>
+          <option value="D" {% if form.freq=='D' %}selected{% endif %}>Daily</option>
+        </select>
+      </div>
+
+      <div class="row" style="grid-column: 1 / -1;">
+        <div class="btns">
+          <button class="btn primary" type="submit">Compute Correlations</button>
+          <a class="btn" href="{{ url_for('stocks_home') }}">← Stocks Options</a>
+        </div>
+      </div>
+    </form>
+
+    {% if error %}
+      <p class="note" style="color:#b00020">{{ error }}</p>
+    {% endif %}
+
+    {% if result %}
+      <div class="row" style="margin-top:16px">
+        <h3>{{ result.title }}</h3>
+
+        <div class="stats">
+          <div class="stat">
+            <div class="k">Avg pairwise corr</div>
+            <div class="v">{{ result.avg_pairwise is not none and (result.avg_pairwise|round(2)) or '—' }}</div>
+          </div>
+          <div class="stat">
+            <div class="k">Min / Max pair</div>
+            <div class="v">
+              {{ result.min_pair is not none and (result.min_pair|round(2)) or '—' }}
+              /
+              {{ result.max_pair is not none and (result.max_pair|round(2)) or '—' }}
+            </div>
+          </div>
+          <div class="stat">
+            <div class="k">Periods used</div>
+            <div class="v">{{ result.periods }}</div>
+          </div>
+        </div>
+
+        <p class="note" style="margin-top:10px">
+          Lower average correlation implies better diversification. Negative correlations hedge each other.
+        </p>
+
+        <!-- Heatmap table -->
+        <div style="overflow:auto; margin-top:10px">
+          <table class="matrix">
+            <thead>
+              <tr>
+                <th></th>
+                {% for col in result.tickers %}
+                  <th>{{ col }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+  {% set n = result.tickers|length %}
+  {% for i in range(n) %}
+    <tr>
+      <th>{{ result.tickers[i] }}</th>
+      {% for j in range(n) %}
+        <td class="{{ result.class_matrix[i][j] }}">
+          {{ result.matrix[i][j] is not none and (result.matrix[i][j]|round(2)) or '—' }}
+        </td>
+      {% endfor %}
+    </tr>
+  {% endfor %}
+</tbody>
+
+          </table>
+        </div>
+
+        <div class="note" style="margin-top:8px">
+          Colors: red = negative, white = ~0, green = positive correlation.
+        </div>
+      </div>
+    {% endif %}
+  </div>
+</body>
+</html>

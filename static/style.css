@@ -196,3 +196,13 @@ input[type="number"] {
 .glossary dt { font-weight: 700; }
 .glossary dd { margin: 4px 0 12px 0; }
 .glossary code { background:#f6f6f6; border:1px solid #eaeaea; border-radius:6px; padding:1px 6px; }
+/* Correlation heatmap buckets */
+.matrix td.cneg3 { background: #ffd0d0; } /* <= -0.75 strong negative */
+.matrix td.cneg2 { background: #ffe0e0; } /* -0.75 .. -0.40 */
+.matrix td.cneg1 { background: #fff0f0; } /* -0.40 .. -0.10 */
+.matrix td.czero { background: #ffffff; } /* -0.10 ..  0.10 */
+.matrix td.cpos1 { background: #f0fff0; } /*  0.10 ..  0.40 */
+.matrix td.cpos2 { background: #e0ffe0; } /*  0.40 ..  0.75 */
+.matrix td.cpos3 { background: #d0ffd0; } /* >= 0.75 strong positive */
+
+.corner-right { right: 16px; left: auto; }
