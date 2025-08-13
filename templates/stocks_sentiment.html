@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Sentiment & Monte Carlo</title>
+  <style>
+  /* Force light UI inside the cards; keep dark page background */
+  :root { color-scheme: light; }
+  body  { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+          background:#0f1115; color:#e5e7eb; }
+
+  .page { max-width: 1200px; margin: 0 auto; padding: 28px 16px 60px; }
+  .back { display:inline-block; margin: 8px 0 18px; color:#e5e7eb; text-decoration:none;
+          border:1px solid #374151; border-radius:10px; padding:8px 12px; }
+  .title { margin:0 0 6px 0; font-size: 28px; font-weight: 700; color:#fff; }
+  .sub   { color:#9ca3af; margin:0 0 22px 0; }
+
+  /* Layout */
+  .layout { display:grid; grid-template-columns: 380px 1fr; gap: 22px; align-items:start; }
+  @media (max-width: 1100px){ .layout { grid-template-columns: 1fr; } }
+  .layout > *, .stack > * { min-width: 0; } /* prevent overflow pushing siblings */
+
+  /* Panels are LIGHT (white) for readability */
+  .panel { background:#fff; color:#111; border:1px solid #e5e7eb; border-radius:14px;
+           box-shadow:0 3px 14px rgba(0,0,0,.06); overflow:hidden; }
+  .panel .hd { padding:14px 16px; border-bottom:1px solid #eef0f3; font-weight:600; color:#111; }
+  .panel .bd { padding:16px; background:#fff; color:#111; }
+
+  .row { display:flex; gap:12px; }
+  .stack { display:flex; flex-direction:column; gap:8px; }
+
+  /* Form controls – FORCE light appearance */
+  label { font-size:13px; color:#374151; }
+  input[type="text"], input[type="number"], select {
+    -webkit-appearance: none; appearance:none;
+    width:100%; border:1px solid #e5e7eb; border-radius:10px;
+    padding:10px 12px; font-size:14px; height:44px; line-height:22px;
+    background:#ffffff !important; color:#111 !important;
+  }
+  input::placeholder { color:#9ca3af; }
+  /* Safari autofill */
+  input:-webkit-autofill {
+    -webkit-text-fill-color:#111;
+    -webkit-box-shadow:0 0 0 1000px #fff inset;
+    box-shadow:0 0 0 1000px #fff inset;
+  }
+
+  .hint { color:#6b7280; font-size:12px; margin-top:4px; }
+  .sep { height:1px; background:#eef0f3; margin:14px 0; }
+
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:10px 14px;
+         border-radius:12px; border:1px solid #e5e7eb; background:#111827; color:#fff; cursor:pointer;
+         transition:transform .06s ease, box-shadow .12s ease, opacity .12s ease; }
+  .btn.secondary { background:#fff; color:#111827; }
+
+  .srcs { display:flex; gap:10px; flex-wrap:wrap; margin-top:6px; }
+  .chip { display:inline-flex; align-items:center; gap:6px; border:1px solid #e5e7eb; border-radius:999px;
+          padding:6px 10px; font-size:12px; background:#fafafa; color:#111; }
+  .chip input { margin-right:4px; }
+
+  .grid-3 { display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; }
+  .grid-2 { display:grid; grid-template-columns: repeat(2, 1fr); gap:10px; }
+
+  /* Output stats – darker text for contrast on white cards */
+  .stat { background:#f9fafb; border:1px solid #e5e7eb; border-radius:12px; padding:12px; text-align:center; color:#111; }
+  .stat .k { font-size:18px; font-weight:700; color:#111; }
+  .note { font-size:12px; color:#6b7280; }
+  .err { color:#b91c1c; font-size:14px; margin-top:8px; }
+
+  /* Chart area should reserve space to avoid layout jumps */
+  canvas#histogram { width:100% !important; height:420px !important; display:block; }
+</style>
+
+</head>
+<body>
+  <div class="page">
+    <a href="{{ url_for('stocks_home') }}" class="back">← Back to Stocks</a>
+    <h1 class="title">Sentiment & Monte Carlo</h1>
+    <p class="sub">Blend sector momentum (ETF-based) into your forecast.</p>
+
+
+    <div class="layout">
+
+      <!-- Controls -->
+      <div class="panel">
+        <div class="hd">Inputs</div>
+        <div class="bd">
+          <div class="stack">
+            <div>
+              <label for="ticker">Ticker</label>
+              <input id="ticker" type="text" placeholder="AAPL" />
+              <div class="hint">Single ticker for now. Portfolios coming soon.</div>
+            </div>
+
+            <div class="row">
+              <div style="flex:1;">
+                <label for="lookback">Price lookback (years)</label>
+                <select id="lookback">
+                  <option value="3" selected>3</option>
+                  <option value="5">5</option>
+                  <option value="10">10</option>
+                </select>
+              </div>
+              <div style="flex:1;">
+                <label for="horizon">Forecast horizon (months)</label>
+                <select id="horizon">
+                  <option value="6">6</option>
+                  <option value="12" selected>12</option>
+                  <option value="24">24</option>
+                  <option value="36">36</option>
+                </select>
+              </div>
+            </div>
+
+                <div class="row">
+        <div style="flex:1;">
+            <label for="amount">Starting amount ($)</label>
+            <input id="amount" type="number" min="0" step="100" value="10000" />
+        </div>
+        <div style="flex:1;">
+            <label for="monthly">Monthly contribution ($)</label>
+            <input id="monthly" type="number" min="0" step="50" value="0" />
+        </div>
+        </div>
+
+
+            <div class="row">
+  <div style="flex:1;">
+    <label for="capm_weight">CAPM weight (%)</label>
+    <input id="capm_weight" type="number" min="0" max="100" step="5" value="50" />
+    <div class="hint">0 = all history, 100 = all CAPM.</div>
+  </div>
+  <div style="flex:1;">
+    <label for="sims">Simulations</label>
+    <input id="sims" type="number" min="500" max="100000" step="500" value="10000" />
+  </div>
+</div>
+
+
+            <div class="row">
+              <div style="flex:1;">
+                <label for="rf">Risk-free (annual %)</label>
+                <input id="rf" type="number" min="0" max="20" step="0.1" value="3.0" />
+              </div>
+              <div style="flex:1;">
+                <label for="erp">Equity risk premium (annual %)</label>
+                <input id="erp" type="number" min="0" max="20" step="0.1" value="5.0" />
+              </div>
+            </div>
+
+            <div class="sep"></div>
+
+            <div class="sep"></div>
+
+<div>
+  <label>Sector sentiment</label>
+  <div class="hint" id="sectorInfo">Will auto-detect the sector and use its ETF momentum as a signal.</div>
+  <div class="row" style="margin-top:8px;">
+    <div style="flex:1;">
+      <label for="sent_blend">Sentiment blend (%)</label>
+      <input id="sent_blend" type="number" min="0" max="100" step="5" value="30" />
+      <div class="hint">Strength of sector effect on μ/σ. 0 = off.</div>
+    </div>
+    <div style="flex:1;">
+      <label for="sent_window">Window (months)</label>
+      <input id="sent_window" type="number" min="1" max="6" step="1" value="3" />
+      <div class="hint">Short-term momentum window for the sector ETF.</div>
+    </div>
+  </div>
+</div>
+
+
+            <div class="sep"></div>
+
+            <div>
+              <label><input id="use_manual" type="checkbox"> Use manual sentiment override (for testing)</label>
+              <div class="grid-3" style="margin-top:8px;">
+                <div>
+                  <label for="manZ">Z-score (−3..+3)</label>
+                  <input id="manZ" type="number" min="-3" max="3" step="0.1" value="0">
+                </div>
+                
+              </div>
+              <div class="hint">If checked, the API uses these values instead of live signals.</div>
+            </div>
+
+            <div class="row" style="margin-top:12px;">
+              <button class="btn" id="runBtn" type="button">Run Forecast</button>
+              <button class="btn secondary" id="resetBtn" type="button">Reset</button>
+            </div>
+            <div id="err" class="err" style="display:none;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Output -->
+      <div class="stack">
+
+        <div class="panel">
+          <div class="hd">Distribution</div>
+          <div class="bd">
+            <canvas id="histogram"></canvas>
+            <div class="note" id="qualityNote" style="margin-top:8px;"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="hd">Key Stats</div>
+          <div class="bd">
+            <div class="grid-3">
+              <div class="stat"><div class="k" id="p50">—</div><div>Median (P50)</div></div>
+              <div class="stat"><div class="k" id="p10">—</div><div>Downside (P10)</div></div>
+              <div class="stat"><div class="k" id="p90">—</div><div>Upside (P90)</div></div>
+            </div>
+            <div class="sep"></div>
+            <div class="grid-2">
+              <div class="stat"><div class="k" id="annMed">—</div><div>Median annualized</div></div>
+              <div class="stat"><div class="k" id="muAdj">—</div><div>μ uplift from sentiment</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="hd">Sentiment diagnostics</div>
+          <div class="bd">
+            <div class="grid-3">
+              <div class="stat"><div class="k" id="zVal">—</div><div>Z</div></div>
+              <div class="stat"><div class="k" id="dSVal">—</div><div>ΔS (trend)</div></div>
+              <div class="stat"><div class="k" id="vsVal">—</div><div>V<sub>S</sub> (disagreement)</div></div>
+            </div>
+            <div class="sep"></div>
+            <div class="grid-3">
+              <div class="stat"><div class="k" id="muBase">—</div><div>μ (base, monthly log)</div></div>
+              <div class="stat"><div class="k" id="muFinal">—</div><div>μ (final, monthly log)</div></div>
+              <div class="stat"><div class="k" id="sigFinal">—</div><div>σ (final, monthly log)</div></div>
+            </div>
+          </div>
+        </div>
+
+      </div> <!-- stack -->
+    </div> <!-- layout -->
+  </div>
+
+  <!-- Chart.js for histogram -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    const $ = (id)=>document.getElementById(id);
+    let histChart = null;
+
+    function fmtUSD(x){
+      if (x === null || x === undefined || Number.isNaN(x)) return '—';
+      return x.toLocaleString(undefined, {style:'currency', currency:'USD', maximumFractionDigits:0});
+    }
+    function fmtPct(x, dp=1){
+      if (x === null || x === undefined || Number.isNaN(x)) return '—';
+      return (x*100).toFixed(dp)+'%';
+    }
+    function set(k, v){ $(k).textContent = v; }
+
+   function gatherInputs(){
+  return {
+    ticker: $('ticker').value.trim().toUpperCase(),
+    amount: parseFloat($('amount').value || '0'),
+    monthly: parseFloat(($('monthly')?.value) || '0'),
+    horizon: parseInt($('horizon').value || '12', 10),
+    lookback: parseInt($('lookback').value || '3', 10),
+    sims: parseInt(($('sims')?.value) || '10000', 10),
+    rf: parseFloat($('rf').value || '3.0'),
+    erp: parseFloat($('erp').value || '5.0'),
+    capm_weight: parseFloat($('capm_weight').value || '50'),
+    sentiment_blend: parseFloat($('sent_blend').value || '30'),
+    sent_window: parseInt(($('sent_window')?.value) || '3', 10),
+    use_manual: $('use_manual').checked,
+    manZ: parseFloat($('manZ').value || '0')
+  };
+}
+
+
+    function renderHistogram(labels, values){
+      const ctx = $('histogram').getContext('2d');
+      if (histChart) histChart.destroy();
+      histChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [{ label: 'Simulated outcomes (frequency)', data: values }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: { ticks: { callback: (v, i)=> labels[i] } },
+            y: { beginAtZero: true }
+          },
+          plugins: { legend: { display: false } }
+        }
+      });
+    }
+
+    $('runBtn').addEventListener('click', async () => {
+      $('err').style.display = 'none';
+      const payload = gatherInputs();
+      if(!payload.ticker){
+        $('err').textContent = 'Please enter a ticker.';
+        $('err').style.display = 'block';
+        return;
+      }
+      $('qualityNote').textContent = 'Running forecast...';
+
+      try{
+        const res = await fetch('/api/sentiment_forecast', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if(!res.ok){
+          const txt = await res.text();
+          throw new Error(txt || ('HTTP '+res.status));
+        }
+        const data = await res.json();
+
+        // Stats
+       // Key stats
+set('p50', fmtUSD(data.forecast.fv_p50));
+set('p10', fmtUSD(data.forecast.fv_p10));
+set('p90', fmtUSD(data.forecast.fv_p90));
+set('annMed', fmtPct(data.forecast.annualized_med, 1));
+set('muAdj', ((data.effects.annual_uplift_pct >= 0 ? '+' : '') + (data.effects.annual_uplift_pct ?? 0).toFixed(2) + '%'));
+
+// Diagnostics (sector-only)
+set('zVal', (data.sector?.z ?? 0).toFixed(2));
+set('dSVal', '—');   // no longer used
+set('vsVal', '—');   // no longer used
+set('muBase', (data.debug?.m_log_base ?? 0).toFixed(5));
+// first-month μ (before decay) = base + adj_mu_log
+const muFirst = (data.debug?.m_log_base ?? 0) + (data.effects?.adj_mu_log ?? 0);
+set('muFinal', (data.debug?.m_log_first ?? 0).toFixed(5));
+set('sigFinal', (data.debug?.s_log_final ?? 0).toFixed(5));
+
+// Histogram
+renderHistogram(data.chart.labels, data.chart.values);
+
+// Quality note + sector info
+$('qualityNote').textContent = (data.sector?.quality_ok)
+  ? `Sector: ${data.sector.name} (ETF ${data.sector.etf}) · z=${(data.sector.z ?? 0).toFixed(2)} · weight=${Math.round((data.sector.weight ?? 0)*100)}%`
+  : 'Sector unknown/low quality → sentiment disabled (baseline only).';
+
+const si = document.getElementById('sectorInfo');
+if (si) {
+  si.textContent = `Detected sector: ${data.sector?.name || 'Market'} (ETF ${data.sector?.etf || 'SPY'}). Latest z=${(data.sector?.z ?? 0).toFixed(2)} using ${data.sector?.window_months ?? 3}-mo window.`;
+}
+
+
+      }catch(err){
+        $('err').textContent = 'Error: ' + err.message;
+        $('err').style.display = 'block';
+        $('qualityNote').textContent = '';
+      }
+    });
+
+  $('resetBtn').addEventListener('click', ()=>{
+  $('ticker').value = '';
+  $('lookback').value = '3';
+  $('horizon').value = '12';
+  $('amount').value = '10000';
+  $('monthly').value = '0';
+  $('sims').value = '10000';
+  $('capm_weight').value = '50';
+  $('sent_blend').value = '30';
+  $('sent_window').value = '3';
+  $('rf').value = '3.0';
+  $('erp').value = '5.0';
+  $('use_manual').checked = false; $('manZ').value = 0;
+  if (histChart) histChart.destroy();
+  ['p50','p10','p90','annMed','muAdj','zVal','dSVal','vsVal','muBase','muFinal','sigFinal','qualityNote'].forEach(k=>set(k,'—'));
+  $('err').style.display = 'none';
+});
+
+  </script>
+</body>
+</html>

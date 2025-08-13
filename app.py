@@ -2,10 +2,148 @@ from flask import Flask, render_template, request
 import pandas as pd
 import yfinance as yf
 import numpy as np
+import json, os
+from dataclasses import dataclass
+# add jsonify to existing imports
+from flask import Flask, render_template, request, jsonify
 
 app = Flask(__name__)
+# --- Sector mapping to SPDR ETFs (fallback = SPY) ---
+SECTOR_ETFS = {
+    "Communication Services": "XLC",
+    "Consumer Discretionary": "XLY",
+    "Consumer Staples": "XLP",
+    "Energy": "XLE",
+    "Financials": "XLF",
+    "Health Care": "XLV",
+    "Industrials": "XLI",
+    "Information Technology": "XLK",
+    "Materials": "XLB",
+    "Real Estate": "XLRE",
+    "Utilities": "XLU",
+}
+DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+os.makedirs(DATA_DIR, exist_ok=True)
 
 # =============== Helpers ===============
+
+def _load_json(path: str):
+    try:
+        with open(path, "r") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+def _save_json(path: str, obj):
+    try:
+        with open(path, "w") as f:
+            json.dump(obj, f)
+    except Exception:
+        pass
+
+def get_sector_for_ticker(ticker: str) -> str | None:
+    """
+    Try cached sector; else ask Yahoo. Cache result to avoid repeated calls.
+    """
+    cache_path = os.path.join(DATA_DIR, "sector_cache.json")
+    cache = _load_json(cache_path) or {}
+    t = ticker.upper().strip()
+    if t in cache and cache[t]:
+        return cache[t]
+
+    try:
+        info = yf.Ticker(t).get_info()  # may be slow the first time
+        sector = info.get("sector") or info.get("Sector")
+        if sector:
+            cache[t] = sector
+            _save_json(cache_path, cache)
+            return sector
+    except Exception:
+        pass
+    return None
+
+def sector_proxy_symbol(sector: str | None) -> str:
+    if not sector:
+        return "SPY"
+    return SECTOR_ETFS.get(sector, "SPY")
+
+def compute_sector_sentiment(etf: str, lookback_years: int = 10, window_months: int = 3):
+    """
+    Very simple 'sentiment' proxy: momentum Z of the sector ETF.
+    """
+    end = pd.Timestamp.today(tz="UTC").normalize()
+    start = end - pd.DateOffset(years=lookback_years, months=1)
+
+    df = yf.download(etf, start=start, end=end, auto_adjust=True,
+                     progress=False, threads=False)
+    if df is None or df.empty:
+        return {"z": 0.0, "quality_ok": False, "count_months": 0}
+
+    # Ensure 'Close' is a 1-D Series
+    close = df["Close"]
+    if isinstance(close, pd.DataFrame):
+        close = close.squeeze("columns")
+
+    m = close.resample("M").last().dropna()
+    r = m.pct_change().dropna()
+    if isinstance(r, pd.DataFrame):
+        r = r.squeeze("columns")
+
+    if len(r) < (window_months + 24):
+        return {"z": 0.0, "quality_ok": False, "count_months": int(len(r))}
+
+    lr = np.log1p(r.to_numpy().reshape(-1))  # 1-D
+    w = int(max(1, window_months))
+
+    roll = pd.Series(lr).rolling(window=w).sum().dropna().to_numpy().reshape(-1)
+    if len(roll) < 12:
+        return {"z": 0.0, "quality_ok": False, "count_months": int(len(r))}
+
+    latest = float(roll[-1])
+    base = roll[:-1]
+    mu, sd = float(np.mean(base)), float(np.std(base, ddof=1))
+    z = 0.0 if sd <= 1e-12 else float(np.clip((latest - mu) / sd, -3.0, 3.0))
+
+    return {"z": z, "quality_ok": True, "count_months": int(len(r))}
+
+
+def apply_sector_sentiment(m_log_base: float, s_log_hist: float,
+                           z: float, blend: float):
+    """
+    Simpler adjustment: only 'level' via sector Z; tiny vol tilt.
+    We also return the raw log-μ shift so we can apply a time decay later.
+    """
+    b = float(np.clip(blend, 0.0, 1.0))
+
+    # Magnitude knobs (conservative defaults)
+    gamma_mu = 0.15 * s_log_hist   # how strongly Z moves μ (in log space)
+    gamma_sig = 0.08               # how strongly Z tilts σ (bullish -> slightly lower σ)
+
+    adj_mu_log = b * gamma_mu * z
+    cap = 0.5 * s_log_hist
+    adj_mu_log = float(np.clip(adj_mu_log, -cap, cap))  # safety cap
+
+    s_mult = 1.0 + b * (-gamma_sig * z)                 # z>0 => reduce σ a touch
+    s_log_final = float(np.clip(s_log_hist * s_mult, 0.7 * s_log_hist, 1.5 * s_log_hist))
+
+    # 'final' if you applied the full shift every month (we'll decay later)
+    m_log_final = float(m_log_base + adj_mu_log)
+
+    # Report arithmetic μ uplift (annualized) just for the UI
+    mu_m0 = np.expm1(m_log_base)
+    mu_m1 = np.expm1(m_log_final)
+    uplift_annual = (1.0 + mu_m1) ** 12 - (1.0 + mu_m0) ** 12
+
+    effects = {
+        "mu_monthly_add": float(mu_m1 - mu_m0),
+        "annual_uplift_pct": float(uplift_annual * 100.0),
+        "adj_mu_log": adj_mu_log,  # <-- return the raw log-μ shift per month
+    }
+    return m_log_final, s_log_final, effects
+
+
+
+
 
 def _monthly_series(ticker: str, lookback_years: int):
     """
@@ -19,25 +157,36 @@ def _monthly_series(ticker: str, lookback_years: int):
                      progress=False, threads=False)
     if df is None or df.empty:
         return None, None
-    monthly = df["Close"].resample("M").last().dropna()
+
+    close = df["Close"]
+    if isinstance(close, pd.DataFrame):
+        close = close.squeeze("columns")
+
+    monthly = close.resample("M").last().dropna()
     r = monthly.pct_change().dropna()
+    if isinstance(r, pd.DataFrame):
+        r = r.squeeze("columns")
+
     if len(r) < 12:
         return None, None
-    lr = np.log1p(r.values)
+
+    lr = np.log1p(r.to_numpy().reshape(-1))  # 1-D
     return r, lr
+
 
 def _estimate_beta(stock_r: pd.Series, bench_r: pd.Series):
     """OLS beta using monthly simple returns."""
     df = pd.concat([stock_r, bench_r], axis=1, join="inner").dropna()
     if df.shape[0] < 12:
         return None
-    s = df.iloc[:, 0].values
-    b = df.iloc[:, 1].values
+    s = np.asarray(df.iloc[:, 0], dtype=float).reshape(-1)
+    b = np.asarray(df.iloc[:, 1], dtype=float).reshape(-1)
     var_b = np.var(b, ddof=1)
     if var_b == 0:
         return None
     cov = np.cov(s, b, ddof=1)[0, 1]
     return float(cov / var_b)
+
 
 def compute_stock_summary(
     ticker: str,
@@ -256,8 +405,13 @@ def bonds():
 
 @app.route("/stocks")
 def stocks_home():
-    # Hub page with buttons to the sub-tools
     return render_template("stocks_home.html")
+
+
+@app.route("/stocks/old")
+def stocks_home_old():
+    return render_template("stocks.html")
+
 
 @app.route("/stocks/correlation", methods=["GET", "POST"])
 def stocks_correlation():
@@ -351,6 +505,141 @@ def compute_correlation_matrix(tickers, lookback_years=3, freq="M"):
         "max_pair": max_pair,
         "periods": int(rets.shape[0]),
     }
+# NEW: sentiment-aware MC API
+@app.route("/api/sentiment_forecast", methods=["POST"])
+def api_sentiment_forecast():
+    try:
+        data = request.get_json(force=True) or {}
+        ticker   = (data.get("ticker") or "").upper().strip()
+        amount   = float(data.get("amount") or 0)
+        monthly  = float(data.get("monthly") or 0)           # NEW: recurring
+        horizon  = int(data.get("horizon") or 12)
+        lookback = int(data.get("lookback") or 3)
+        simsN    = max(500, int(data.get("sims") or 10000))
+        rf_ann   = float(data.get("rf") or 3.0) / 100.0
+        erp_ann  = float(data.get("erp") or 5.0) / 100.0
+        capm_w   = float(data.get("capm_weight") or 50.0) / 100.0
+
+        # Sector sentiment knobs
+        sent_b   = float(data.get("sentiment_blend") or 30.0) / 100.0
+        sent_win = int(data.get("sent_window") or 3)
+        manual   = bool(data.get("use_manual") or data.get("manual") or False)
+        manZ     = float(data.get("manZ") or 0.0)
+
+        if not ticker or amount < 0 or horizon <= 0:
+            return jsonify({"error": "Ticker, amount ≥ 0, and horizon > 0 required."}), 400
+        
+
+        # --- historical log stats for the stock ---
+        r_stock, lr_stock = _monthly_series(ticker, lookback)
+        if r_stock is None:
+            return jsonify({"error": f"No data for '{ticker}'."}), 400
+        
+        m_log_hist = float(np.mean(lr_stock))
+        s_log_hist = float(np.std(lr_stock, ddof=1))
+
+        # CAPM monthly expectation (arith) → log mean (using SPY for beta)
+        r_bench, _ = _monthly_series("SPY", lookback)
+        beta_val = _estimate_beta(r_stock, r_bench) if r_bench is not None else None
+        rf_m  = (1.0 + rf_ann) ** (1.0/12.0) - 1.0
+        erp_m = (1.0 + erp_ann) ** (1.0/12.0) - 1.0
+        e_capm_m = rf_m + (beta_val if beta_val is not None else 1.0) * erp_m
+        m_log_capm = float(np.log1p(e_capm_m))
+
+        # Base drift blend
+        w = float(np.clip(capm_w, 0.0, 1.0))
+        m_log_base = float((1.0 - w) * m_log_hist + w * m_log_capm)
+
+        # --- Sector detection & sentiment ---
+        sector = get_sector_for_ticker(ticker)
+        etf = sector_proxy_symbol(sector)
+
+        if manual:
+            z = float(np.clip(manZ, -3.0, 3.0))
+            quality_ok = True
+        else:
+            ss = compute_sector_sentiment(etf, lookback_years=10, window_months=sent_win)
+            z = float(ss["z"])
+            quality_ok = bool(ss["quality_ok"])
+
+        # If we don't trust the signal, kill the weight
+        sent_blend_eff = sent_b if quality_ok else 0.0
+
+        # Sector adjustment (we'll apply time-decay when simulating)
+        _, s_log_final, effects = apply_sector_sentiment(
+            m_log_base, s_log_hist, z, sent_blend_eff
+        )
+        adj_mu_log = float(effects["adj_mu_log"])
+
+        # --- Simulation with half-life decay of the sector effect ---
+        n = max(1, int(horizon))
+        simsN = max(500, int(simsN))
+        half_life = 6.0  # months; feel free to tweak
+        decay = np.power(0.5, np.arange(n) / half_life)  # shape (n,)
+        means = m_log_base + adj_mu_log * decay          # shape (n,)
+
+        rng = np.random.default_rng()
+        # draws with time-varying mean; broadcast over sims
+        lr_paths = rng.normal(loc=means, scale=s_log_final, size=(simsN, n))
+        gf = np.exp(lr_paths)                 # growth factors per month
+        total = gf.prod(axis=1)               # growth of $1 over n months
+
+        if monthly > 0:
+            cumprod_fwd = gf.cumprod(axis=1)
+            # EOM contributions
+            S = (total[:, None] / cumprod_fwd).sum(axis=1)
+            fv = amount * total + monthly * S
+        else:
+            fv = amount * total
+
+        p05, p10, p25, p50, p75, p90, p95 = np.percentile(fv, [5, 10, 25, 50, 75, 90, 95])
+        base_invested = float(amount + monthly * n)
+        annualized_med = (p50 / max(1e-9, amount if amount > 0 else base_invested)) ** (12.0 / n) - 1.0
+
+        # Histogram across the full simulated range
+        lo = float(np.min(fv))
+        hi = float(np.max(fv))
+        bins = 60 if simsN >= 100_000 else 40
+        if hi <= lo:
+            hi = lo + 1e-6
+        edges = np.linspace(lo, hi, bins + 1)
+        hist, _ = np.histogram(fv, bins=edges)
+        mids = 0.5 * (edges[:-1] + edges[1:])
+        labels = [f"${int(x):,}" for x in mids]
+
+        return jsonify({
+            "ticker": ticker,
+            "forecast": {
+                "fv_p05": float(p05), "fv_p10": float(p10), "fv_p25": float(p25),
+                "fv_p50": float(p50), "fv_p75": float(p75), "fv_p90": float(p90),
+                "fv_p95": float(p95), "annualized_med": float(annualized_med)
+            },
+            "chart": {"labels": labels, "values": [int(v) for v in hist.tolist()]},
+            "sector": {
+                "name": sector or "Market",
+                "etf": etf,
+                "z": float(z),
+                "window_months": int(sent_win),
+                "weight": float(sent_blend_eff),
+                "quality_ok": bool(quality_ok),
+            },
+            "effects": effects,
+            "debug": {
+    "m_log_hist": m_log_hist,
+    "m_log_capm": m_log_capm,
+    "m_log_base": m_log_base,
+    "m_log_first": float(m_log_base + adj_mu_log),  # <-- added: first-month μ (before decay)
+    "s_log_hist": s_log_hist,
+    "s_log_final": s_log_final,
+    "beta": None if beta_val is None else float(beta_val),
+    "rf_m": rf_m,
+    "erp_m": erp_m
+}
+
+        })
+    except Exception as e:
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
+
 
 
 @app.route("/stocks/trailing", methods=["GET", "POST"])
@@ -387,6 +676,13 @@ def stocks_trailing():
 
     # This still uses your existing template file:
     return render_template("stocks.html", **ctx)
+
+
+
+@app.route("/stocks/sentiment")
+def stocks_sentiment():
+    return render_template("stocks_sentiment.html")
+
 
 @app.route("/stocks/dca", methods=["GET", "POST"])
 def stocks_dca():
