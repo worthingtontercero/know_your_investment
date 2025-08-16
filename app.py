@@ -1,13 +1,17 @@
-from flask import Flask, render_template, request
+from __future__ import annotations
+
+from flask import Flask, render_template, request, jsonify
 import pandas as pd
 import yfinance as yf
 import numpy as np
 import json, os
-from dataclasses import dataclass
-# add jsonify to existing imports
-from flask import Flask, render_template, request, jsonify
+# from dataclasses import dataclass  # not used; safe to remove
+
+# Import Portfolio Lab helper
+from portfolio_utils import analyze_portfolio
 
 app = Flask(__name__)
+
 # --- Sector mapping to SPDR ETFs (fallback = SPY) ---
 SECTOR_ETFS = {
     "Communication Services": "XLC",
@@ -25,7 +29,7 @@ SECTOR_ETFS = {
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 
-# =============== Helpers ===============
+# =============== Helpers (your existing ones) ===============
 
 def _load_json(path: str):
     try:
@@ -106,9 +110,7 @@ def compute_sector_sentiment(etf: str, lookback_years: int = 10, window_months: 
 
     return {"z": z, "quality_ok": True, "count_months": int(len(r))}
 
-
-def apply_sector_sentiment(m_log_base: float, s_log_hist: float,
-                           z: float, blend: float):
+def apply_sector_sentiment(m_log_base: float, s_log_hist: float, z: float, blend: float):
     """
     Simpler adjustment: only 'level' via sector Z; tiny vol tilt.
     We also return the raw log-μ shift so we can apply a time decay later.
@@ -137,13 +139,9 @@ def apply_sector_sentiment(m_log_base: float, s_log_hist: float,
     effects = {
         "mu_monthly_add": float(mu_m1 - mu_m0),
         "annual_uplift_pct": float(uplift_annual * 100.0),
-        "adj_mu_log": adj_mu_log,  # <-- return the raw log-μ shift per month
+        "adj_mu_log": adj_mu_log,  # for decayed use later
     }
     return m_log_final, s_log_final, effects
-
-
-
-
 
 def _monthly_series(ticker: str, lookback_years: int):
     """
@@ -173,7 +171,6 @@ def _monthly_series(ticker: str, lookback_years: int):
     lr = np.log1p(r.to_numpy().reshape(-1))  # 1-D
     return r, lr
 
-
 def _estimate_beta(stock_r: pd.Series, bench_r: pd.Series):
     """OLS beta using monthly simple returns."""
     df = pd.concat([stock_r, bench_r], axis=1, join="inner").dropna()
@@ -187,7 +184,6 @@ def _estimate_beta(stock_r: pd.Series, bench_r: pd.Series):
     cov = np.cov(s, b, ddof=1)[0, 1]
     return float(cov / var_b)
 
-
 def compute_stock_summary(
     ticker: str,
     horizon_months: int,
@@ -195,10 +191,6 @@ def compute_stock_summary(
     lookback_years: int = 3,
     projection: bool = True,
 ):
-    """
-    Build monthly returns from adjusted closes and compute summary stats.
-    Optionally project FV using geometric mean and ±1σ variants.
-    """
     end = pd.Timestamp.today(tz="UTC").normalize()
     start = end - pd.DateOffset(years=lookback_years, months=1)
     df = yf.download(ticker, start=start, end=end, auto_adjust=True,
@@ -246,10 +238,6 @@ def compute_stock_forecast(
     capm_weight: float = 0.5,
     sims: int = 5000,
 ):
-    """
-    Monte Carlo forecast with drift blended between historical log-mean and CAPM,
-    and volatility = historical monthly log σ.
-    """
     r_stock, lr_stock = _monthly_series(ticker, lookback_years)
     if r_stock is None:
         return None
@@ -265,11 +253,10 @@ def compute_stock_forecast(
         if r_bench is not None:
             beta_val = _estimate_beta(r_stock, r_bench)
 
-    # CAPM monthly arithmetic mean
+    # CAPM monthly arithmetic mean -> log mean
     rf_m  = (1.0 + rf_annual) ** (1.0 / 12.0) - 1.0
     erp_m = (1.0 + erp_annual) ** (1.0 / 12.0) - 1.0
     e_capm_m = rf_m + (beta_val if beta_val is not None else 1.0) * erp_m
-    # convert to log mean
     m_log_capm = float(np.log1p(e_capm_m))
 
     # Blend drift in log space
@@ -319,7 +306,6 @@ def compute_dca_forecast(
     goal: float | None = None,
     target_conf: float = 0.80,
 ):
-    # Historical monthly returns (simple + log) for drift/vol
     r_stock, lr_stock = _monthly_series(ticker, lookback_years)
     if r_stock is None:
         return None
@@ -369,9 +355,8 @@ def compute_dca_forecast(
     required_monthly = None
     if goal is not None and goal > 0:
         prob_goal = float(np.mean(fv >= goal))
-        # For each path, the monthly needed to hit goal: (goal - initial*total) / S
         req = (goal - initial * total) / S
-        req = np.maximum(0.0, req)  # no negative requirement
+        req = np.maximum(0.0, req)
         tc = float(np.clip(target_conf, 0.0, 0.999))
         required_monthly = float(np.quantile(req, tc))
 
@@ -407,11 +392,9 @@ def bonds():
 def stocks_home():
     return render_template("stocks_home.html")
 
-
 @app.route("/stocks/old")
 def stocks_home_old():
     return render_template("stocks.html")
-
 
 @app.route("/stocks/correlation", methods=["GET", "POST"])
 def stocks_correlation():
@@ -440,12 +423,7 @@ def stocks_correlation():
 
     return render_template("stocks_correlation.html", **ctx)
 
-
 def compute_correlation_matrix(tickers, lookback_years=3, freq="M"):
-    """
-    Returns dict with tickers, correlation matrix (list of lists),
-    simple stats, and a CSS class heatmap for each cell.
-    """
     end = pd.Timestamp.today(tz="UTC").normalize()
     start = end - pd.DateOffset(years=lookback_years, months=1)
 
@@ -457,7 +435,6 @@ def compute_correlation_matrix(tickers, lookback_years=3, freq="M"):
         close = df["Close"].copy()
         if freq.upper() == "M":
             close = close.resample("M").last()
-        # simple returns
         r = close.pct_change().dropna()
         r.name = t
         frames.append(r)
@@ -479,7 +456,7 @@ def compute_correlation_matrix(tickers, lookback_years=3, freq="M"):
     min_pair = float(vals.min()) if len(vals) else None
     max_pair = float(vals.max()) if len(vals) else None
 
-    # Discrete class buckets (negative -> red, near 0 -> white, positive -> green)
+    # Class buckets for heatmap
     def bucket_class(c):
         c = float(max(-1.0, min(1.0, c)))
         if c <= -0.75:    return "cneg3"
@@ -505,14 +482,15 @@ def compute_correlation_matrix(tickers, lookback_years=3, freq="M"):
         "max_pair": max_pair,
         "periods": int(rets.shape[0]),
     }
-# NEW: sentiment-aware MC API
+
+# NEW: sentiment-aware MC API (unchanged)
 @app.route("/api/sentiment_forecast", methods=["POST"])
 def api_sentiment_forecast():
     try:
         data = request.get_json(force=True) or {}
         ticker   = (data.get("ticker") or "").upper().strip()
         amount   = float(data.get("amount") or 0)
-        monthly  = float(data.get("monthly") or 0)           # NEW: recurring
+        monthly  = float(data.get("monthly") or 0)
         horizon  = int(data.get("horizon") or 12)
         lookback = int(data.get("lookback") or 3)
         simsN    = max(500, int(data.get("sims") or 10000))
@@ -528,13 +506,11 @@ def api_sentiment_forecast():
 
         if not ticker or amount < 0 or horizon <= 0:
             return jsonify({"error": "Ticker, amount ≥ 0, and horizon > 0 required."}), 400
-        
 
-        # --- historical log stats for the stock ---
         r_stock, lr_stock = _monthly_series(ticker, lookback)
         if r_stock is None:
             return jsonify({"error": f"No data for '{ticker}'."}), 400
-        
+
         m_log_hist = float(np.mean(lr_stock))
         s_log_hist = float(np.std(lr_stock, ddof=1))
 
@@ -574,31 +550,28 @@ def api_sentiment_forecast():
         # --- Simulation with half-life decay of the sector effect ---
         n = max(1, int(horizon))
         simsN = max(500, int(simsN))
-        half_life = 6.0  # months; feel free to tweak
-        decay = np.power(0.5, np.arange(n) / half_life)  # shape (n,)
-        means = m_log_base + adj_mu_log * decay          # shape (n,)
+        half_life = 6.0  # months; tweakable
+        decay = np.power(0.5, np.arange(n) / half_life)
+        means = m_log_base + adj_mu_log * decay
 
         rng = np.random.default_rng()
-        # draws with time-varying mean; broadcast over sims
         lr_paths = rng.normal(loc=means, scale=s_log_final, size=(simsN, n))
-        gf = np.exp(lr_paths)                 # growth factors per month
-        total = gf.prod(axis=1)               # growth of $1 over n months
+        gf = np.exp(lr_paths)
+        total = gf.prod(axis=1)
 
         if monthly > 0:
             cumprod_fwd = gf.cumprod(axis=1)
-            # EOM contributions
-            S = (total[:, None] / cumprod_fwd).sum(axis=1)
+            S = (total[:, None] / cumprod_fwd).sum(axis=1)  # EOM contributions
             fv = amount * total + monthly * S
         else:
             fv = amount * total
 
         p05, p10, p25, p50, p75, p90, p95 = np.percentile(fv, [5, 10, 25, 50, 75, 90, 95])
         base_invested = float(amount + monthly * n)
-        annualized_med = (p50 / max(1e-9, amount if amount > 0 else base_invested)) ** (12.0 / n) - 1.0
+        base_div = amount if amount > 0 else max(1e-9, base_invested)
+        annualized_med = (p50 / base_div) ** (12.0 / n) - 1.0
 
-        # Histogram across the full simulated range
-        lo = float(np.min(fv))
-        hi = float(np.max(fv))
+        lo, hi = float(np.min(fv)), float(np.max(fv))
         bins = 60 if simsN >= 100_000 else 40
         if hi <= lo:
             hi = lo + 1e-6
@@ -624,23 +597,9 @@ def api_sentiment_forecast():
                 "quality_ok": bool(quality_ok),
             },
             "effects": effects,
-            "debug": {
-    "m_log_hist": m_log_hist,
-    "m_log_capm": m_log_capm,
-    "m_log_base": m_log_base,
-    "m_log_first": float(m_log_base + adj_mu_log),  # <-- added: first-month μ (before decay)
-    "s_log_hist": s_log_hist,
-    "s_log_final": s_log_final,
-    "beta": None if beta_val is None else float(beta_val),
-    "rf_m": rf_m,
-    "erp_m": erp_m
-}
-
         })
     except Exception as e:
         return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
-
-
 
 @app.route("/stocks/trailing", methods=["GET", "POST"])
 def stocks_trailing():
@@ -674,15 +633,11 @@ def stocks_trailing():
     else:
         ctx["form"] = {"amount": 1000, "horizon": 12, "lookback": 3, "benchmark": ""}
 
-    # This still uses your existing template file:
     return render_template("stocks.html", **ctx)
-
-
 
 @app.route("/stocks/sentiment")
 def stocks_sentiment():
     return render_template("stocks_sentiment.html")
-
 
 @app.route("/stocks/dca", methods=["GET", "POST"])
 def stocks_dca():
@@ -728,7 +683,6 @@ def stocks_dca():
 
     return render_template("stocks_dca.html", **ctx)
 
-
 @app.route("/stocks/forecast", methods=["GET", "POST"])
 def stocks_forecast():
     ctx = {"form": {}, "result": None, "error": None}
@@ -768,7 +722,32 @@ def stocks_forecast():
 
     return render_template("stocks_forecast.html", **ctx)
 
-# =============== Main ===============
+# ---------- Portfolio Lab ----------
+@app.route("/stocks/portfolio")
+def stocks_portfolio():
+    return render_template("stocks_portfolio.html")
 
+@app.route("/api/portfolio/analyze", methods=["POST"])
+def api_portfolio_analyze():
+    try:
+        data = request.get_json(force=True)
+        result = analyze_portfolio(
+            tickers=data.get("tickers",""),
+            weights_pct=data.get("weights",""),
+            start=data.get("start","2019-01-01"),
+            rf_annual=float(data.get("rf", 0.0)),
+            market_symbol=data.get("market","^GSPC"),
+            sims=int(data.get("sims", 2000)),
+            horizon_days=int(data.get("horizon_days", 252)),
+            conf=float(data.get("conf", 0.95)),
+            drift_mode=data.get("drift","capm"),
+        )
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+# ---------- END Portfolio Lab ----------
+
+# =============== Main ===============
 if __name__ == "__main__":
+     
     app.run(debug=True)

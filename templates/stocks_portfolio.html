@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Portfolio Lab</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.plot.ly/plotly-2.30.0.min.js" defer></script>
+  <style>
+    :root { --bg:#f8fafc; --card:#fff; --text:#111827; --muted:#6b7280; --border:#e5e7eb; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text); }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 28px 16px 80px; }
+    .back { display:inline-block; margin-bottom: 16px; color:#111827; text-decoration:none; border:1px solid var(--border); border-radius:10px; padding:8px 12px; background:#fff; }
+    h1 { font-size: 32px; margin: 0 0 4px; }
+    .sub { color: var(--muted); margin-bottom: 22px; }
+    .grid { display:grid; grid-template-columns: 1.1fr 1.9fr; gap: 24px; }
+    .card { background: var(--card); border:1px solid var(--border); border-radius: 14px; box-shadow: 0 3px 14px rgba(0,0,0,.06); padding: 18px; }
+    .card h2 { margin: 0 0 12px; font-size: 18px; }
+    .row { display:flex; gap:10px; }
+    label { display:block; font-size: 12px; color: var(--muted); margin-bottom:6px; }
+    input, select, textarea {
+      width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:#fff; color:#111827;
+      font-size:14px; outline:none;
+    }
+    textarea { min-height: 88px; resize: vertical; }
+    .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+    .btn { margin-top: 8px; display:inline-flex; align-items:center; gap:8px; padding:10px 14px; background:#111827; color:#fff; border:none; border-radius:10px; cursor:pointer; }
+    .btn:disabled { opacity: .6; cursor: not-allowed; }
+    .metrics { display:grid; grid-template-columns: repeat(2,1fr); gap:10px; }
+    .metric { border:1px dashed var(--border); border-radius:10px; padding:10px 12px; }
+    .metric .k { font-size: 12px; color: var(--muted); }
+    .metric .v { font-size: 16px; font-weight: 600; margin-top: 2px; }
+    .two { display:grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .table { width:100%; border-collapse: collapse; font-size: 13px; }
+    .table th, .table td { border-bottom:1px solid var(--border); padding:8px 6px; text-align:left; }
+    .pill { display:inline-block; padding:2px 8px; border:1px solid var(--border); border-radius:999px; font-size:12px; color:#334155; background:#f1f5f9; }
+    @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } .two { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <!-- FIXED back link -->
+    <a href="{{ url_for('stocks_home') }}" class="back">← Back to Stocks</a>
+
+    <h1>Portfolio Lab</h1>
+    <div class="sub">Analyze, stress-test, and optimize your portfolio.</div>
+
+    <div class="grid">
+      <!-- LEFT: Controls -->
+      <div class="card">
+        <h2>Inputs</h2>
+        <label>Tickers (comma-separated)</label>
+        <input id="tickers" placeholder="e.g., AAPL, MSFT, NVDA, AMZN">
+
+        <div class="row">
+          <div style="flex:1">
+            <label>Weights % (comma-separated — optional)</label>
+            <input id="weights" placeholder="e.g., 25, 25, 25, 25">
+            <div class="hint">Leave blank to auto-equal-weight.</div>
+          </div>
+          <div style="width: 180px;">
+            <label>Start Date</label>
+            <input id="start" type="date">
+          </div>
+        </div>
+
+        <div class="row">
+          <div style="flex:1">
+            <label>Risk-Free Rate (annual, %)</label>
+            <input id="rf" type="number" step="0.01" value="4.50">
+          </div>
+          <div style="flex:1">
+            <label>Market Proxy</label>
+            <select id="market">
+              <option value="^GSPC">S&P 500 (^GSPC)</option>
+              <option value="SPY">SPY</option>
+              <option value="^IXIC">Nasdaq (^IXIC)</option>
+              <option value="^DJI">Dow Jones (^DJI)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row">
+          <div style="flex:1">
+            <label>Monte Carlo — Simulations</label>
+            <input id="sims" type="number" step="100" value="2000">
+          </div>
+          <div style="flex:1">
+            <label>Horizon (days)</label>
+            <input id="horizon" type="number" value="252">
+          </div>
+        </div>
+
+        <div class="row">
+          <div style="flex:1">
+            <label>Confidence (VaR/CVaR)</label>
+            <select id="conf">
+              <option value="0.95">95%</option>
+              <option value="0.975">97.5%</option>
+              <option value="0.99">99%</option>
+            </select>
+          </div>
+          <div style="flex:1">
+            <label>Drift Source</label>
+            <select id="drift">
+              <option value="capm">CAPM (market-adjusted)</option>
+              <option value="historical">Historical mean</option>
+            </select>
+          </div>
+        </div>
+
+        <button class="btn" id="runBtn">▶ Analyze Portfolio</button>
+        <div class="hint" id="msg"></div>
+      </div>
+
+      <!-- RIGHT: Results -->
+      <div class="card">
+        <h2>Summary</h2>
+        <div class="metrics" id="metrics">
+          <div class="metric"><div class="k">Expected Return (annual)</div><div class="v" id="m_exp">–</div></div>
+          <div class="metric"><div class="k">Volatility (annual)</div><div class="v" id="m_vol">–</div></div>
+          <div class="metric"><div class="k">Sharpe Ratio</div><div class="v" id="m_sharpe">–</div></div>
+          <div class="metric"><div class="k">Beta vs Market</div><div class="v" id="m_beta">–</div></div>
+          <div class="metric"><div class="k">Max Drawdown</div><div class="v" id="m_mdd">–</div></div>
+          <div class="metric"><div class="k">VaR / CVaR</div><div class="v" id="m_var">–</div></div>
+        </div>
+
+        <div style="height:14px"></div>
+        <div class="two">
+          <div>
+            <div class="pill">Optimized (max Sharpe)</div>
+            <table class="table" id="optTable"></table>
+          </div>
+          <div>
+            <div class="pill">Current Weights</div>
+            <table class="table" id="curTable"></table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="height:22px"></div>
+
+    <!-- Charts -->
+    <div class="two">
+      <div class="card">
+        <h2>Correlation Heatmap</h2>
+        <div id="corrPlot" style="height:420px"></div>
+      </div>
+      <div class="card">
+        <h2>Efficient Frontier</h2>
+        <div id="efPlot" style="height:420px"></div>
+      </div>
+    </div>
+
+    <div style="height:22px"></div>
+
+    <div class="card">
+      <h2>Monte Carlo — Portfolio Value Paths</h2>
+      <div id="mcPlot" style="height:480px"></div>
+    </div>
+  </div>
+
+  <script>
+    function fmtPct(x) { return (x*100).toFixed(2) + '%'; }
+    function fmt(x, n=2) { return Number(x).toFixed(n); }
+
+    function buildTable(elId, rows) {
+      const el = document.getElementById(elId);
+      if (!rows || !rows.length) { el.innerHTML = '<tr><td>No data</td></tr>'; return; }
+      const heads = Object.keys(rows[0]);
+      el.innerHTML = `
+        <thead><tr>${heads.map(h=>`<th>${h}</th>`).join('')}</tr></thead>
+        <tbody>${rows.map(r=>`<tr>${heads.map(h=>`<td>${r[h]}</td>`).join('')}</tr>`).join('')}</tbody>
+      `;
+    }
+
+    async function analyze() {
+      const btn = document.getElementById('runBtn');
+      const msg = document.getElementById('msg');
+      btn.disabled = true; msg.textContent = 'Running…';
+
+      const payload = {
+        tickers: document.getElementById('tickers').value,
+        weights: document.getElementById('weights').value,
+        start: document.getElementById('start').value,
+        rf: parseFloat(document.getElementById('rf').value || '0'),
+        market: document.getElementById('market').value,
+        sims: parseInt(document.getElementById('sims').value || '2000'),
+        horizon_days: parseInt(document.getElementById('horizon').value || '252'),
+        conf: parseFloat(document.getElementById('conf').value || '0.95'),
+        drift: document.getElementById('drift').value
+      };
+
+      try {
+        const res = await fetch("{{ url_for('api_portfolio_analyze') }}", {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Request failed');
+
+        document.getElementById('m_exp').textContent = fmtPct(data.metrics.exp_return);
+        document.getElementById('m_vol').textContent  = fmtPct(data.metrics.vol);
+        document.getElementById('m_sharpe').textContent = fmt(data.metrics.sharpe);
+        document.getElementById('m_beta').textContent = isFinite(data.metrics.beta) ? fmt(data.metrics.beta) : '—';
+        document.getElementById('m_mdd').textContent  = fmtPct(data.metrics.max_drawdown);
+        document.getElementById('m_var').textContent  = `${fmtPct(data.metrics.var)} / ${fmtPct(data.metrics.cvar)}`;
+
+        buildTable('curTable', data.current_weights.map(d=>({Ticker:d.ticker, Weight:fmtPct(d.weight)})));
+        buildTable('optTable', data.opt_weights.map(d=>({Ticker:d.ticker, Weight:fmtPct(d.weight)})));
+
+        Plotly.newPlot('corrPlot', [{
+          z: data.corr.z, x: data.corr.labels, y: data.corr.labels, type: 'heatmap', hoverongaps: false
+        }], { margin:{l:50,r:10,t:10,b:40} }, {responsive:true});
+
+        Plotly.newPlot('efPlot', [
+          { x: data.ef.vol, y: data.ef.ret, mode: 'lines+markers', name: 'Frontier' },
+          { x: [data.metrics.vol], y: [data.metrics.exp_return], mode: 'markers', name: 'Current', marker:{size:10} },
+          { x: [data.opt_metrics.vol], y: [data.opt_metrics.exp_return], mode: 'markers', name: 'Max Sharpe', marker:{size:10} },
+        ], { xaxis:{title:'Volatility'}, yaxis:{title:'Expected Return'}, margin:{l:50,r:10,t:10,b:40} }, {responsive:true});
+
+        Plotly.newPlot('mcPlot', data.mc_traces, {
+          xaxis:{title:'Day'}, yaxis:{title:'Portfolio Value'}, showlegend:false, margin:{l:50,r:10,t:10,b:40}
+        }, {responsive:true});
+
+        msg.textContent = data.note || '';
+      } catch (e) {
+        msg.textContent = 'Error: ' + e.message;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    document.getElementById('runBtn').addEventListener('click', analyze);
+    window.addEventListener('DOMContentLoaded', () => {
+      const today = new Date();
+      const d = new Date(today); d.setFullYear(today.getFullYear()-5);
+      document.getElementById('start').value = d.toISOString().slice(0,10);
+      document.getElementById('tickers').value = 'AAPL, MSFT, NVDA, AMZN';
+      document.getElementById('weights').value = '';
+    });
+  </script>
+</body>
+</html>
