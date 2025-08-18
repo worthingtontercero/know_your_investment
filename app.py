@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+from flask import render_template  # ensure this import exists
 from flask import Flask, render_template, request, jsonify
 import pandas as pd
 import yfinance as yf
@@ -379,6 +379,31 @@ def compute_dca_forecast(
     }
 
 # =============== Routes ===============
+@app.route('/options-derivatives')
+def options_derivatives_home():
+    return render_template('options_derivatives.html')
+
+@app.route('/options/black-scholes')
+def options_black_scholes():
+    return render_template('options_black_scholes.html')
+
+@app.route('/options/payoff')
+def options_payoff():
+    return render_template('options_payoff.html')
+
+@app.route('/options/iv')
+def options_iv():
+    return render_template('options_iv.html')
+
+@app.route('/options/futures')
+def options_futures():
+    return render_template('futures_pricing.html')
+    
+
+@app.route('/options/greeks')
+def options_greeks():
+    return render_template('options_greeks.html')
+
 
 @app.route("/")
 def index():

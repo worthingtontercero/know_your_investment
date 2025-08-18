@@ -7,10 +7,11 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  <a class="back back-top" href="/">← Back to Home</a>
+  <!-- Single top button back to Stocks hub -->
+  <a class="back back-top" href="{{ url_for('stocks_home') }}">← Back to Stocks</a>
+
   <h1>Stock Analysis (Trailing Window)</h1>
-<a class="btn" href="{{ url_for('stocks_forecast') }}">Switch to Forecasting →</a>
-<a class="btn" href="{{ url_for('stocks_home') }}">← Stocks Options</a>
+
   <div class="container">
     <form method="POST" class="grid">
       <div class="row">
@@ -28,7 +29,6 @@
         <input id="horizon" name="horizon" class="input" type="number" step="1" value="{{ form.horizon or 12 }}" required>
       </div>
 
-      <!-- NEW: Lookback selector goes here -->
       <div class="row">
         <label class="label" for="lookback">Lookback (years)</label>
         <select id="lookback" name="lookback" class="select">

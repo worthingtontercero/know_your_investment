@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Futures Pricing — Cost of Carry</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="page">
+    <a class="back-btn" href="/options-derivatives">← Options & Derivatives</a>
+    <h1>Futures Pricing (Cost of Carry)</h1>
+    <p class="subtitle">F₀ = S₀ · exp((r + c − y) · T). Enter costs and income as annualized %.</p>
+
+    <form id="fut-form" class="form-grid">
+      <div class="form-row"><label>Spot (S₀)</label>
+        <input id="S" type="number" step="0.01" value="100"></div>
+      <div class="form-row"><label>Time (T, years)</label>
+        <input id="T" type="number" step="0.01" value="0.5"></div>
+      <div class="form-row"><label>Risk-free (r, %)</label>
+        <input id="r" type="number" step="0.01" value="5"></div>
+      <div class="form-row"><label>Carrying Cost (c, %)</label>
+        <input id="c" type="number" step="0.01" value="0"></div>
+      <div class="form-row"><label>Income Yield (y, %)</label>
+        <input id="y" type="number" step="0.01" value="0"></div>
+      <div class="form-row full"><button type="button" class="btn" onclick="priceFut()">Compute</button></div>
+    </form>
+
+    <div class="results" id="results" style="display:none">
+      <div class="kv"><span>Futures Price (F₀)</span><strong id="F0"></strong></div>
+    </div>
+  </div>
+
+  <script>
+    function round(x){ return Math.round(x*10000)/10000; }
+    function priceFut(){
+      const S = parseFloat(document.getElementById('S').value);
+      const T = Math.max(1e-8, parseFloat(document.getElementById('T').value));
+      const r = parseFloat(document.getElementById('r').value)/100;
+      const c = parseFloat(document.getElementById('c').value)/100;
+      const y = parseFloat(document.getElementById('y').value)/100;
+      const F0 = S * Math.exp((r + c - y) * T);
+      document.getElementById('F0').innerText = round(F0);
+      document.getElementById('results').style.display = 'block';
+    }
+  </script>
+</body>
+</html>

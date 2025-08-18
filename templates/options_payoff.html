@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Strategy Payoff Builder</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <div class="page">
+    <a class="back-btn" href="/options-derivatives">← Options & Derivatives</a>
+    <h1>Strategy Payoff Builder</h1>
+    <p class="subtitle">Add legs (calls, puts, stock), set strikes & premiums, then plot P&L at expiry.</p>
+
+    <div class="builder">
+      <div class="controls">
+        <div class="form-row">
+          <label>Underlying at entry (S₀)</label>
+          <input type="number" id="S0" step="0.01" value="100">
+        </div>
+        <div class="form-row">
+          <label>Price range min (Sₜ)</label>
+          <input type="number" id="Smin" step="0.01" value="50">
+        </div>
+        <div class="form-row">
+          <label>Price range max (Sₜ)</label>
+          <input type="number" id="Smax" step="0.01" value="150">
+        </div>
+        <div class="form-row">
+          <label>Points</label>
+          <input type="number" id="npts" step="1" value="200">
+        </div>
+      </div>
+
+      <div class="leg-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Action</th>
+              <th>Qty</th>
+              <th>Strike</th>
+              <th>Premium</th>
+              <th>Remove</th>
+            </tr>
+          </thead>
+          <tbody id="legs"></tbody>
+        </table>
+        <div class="btn-row">
+          <button class="btn" onclick="addLeg('call')">+ Call</button>
+          <button class="btn" onclick="addLeg('put')">+ Put</button>
+          <button class="btn" onclick="addLeg('stock')">+ Stock</button>
+          <button class="btn primary" onclick="plot()">Plot Payoff</button>
+        </div>
+        <div class="btn-row examples">
+          <span>Examples:</span>
+          <button class="btn light" onclick="exampleLongCall()">Long Call</button>
+          <button class="btn light" onclick="exampleCoveredCall()">Covered Call</button>
+          <button class="btn light" onclick="exampleProtectivePut()">Protective Put</button>
+          <button class="btn light" onclick="exampleBullCallSpread()">Bull Call Spread</button>
+          <button class="btn light" onclick="exampleStraddle()">Long Straddle</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="chart-container">
+      <canvas id="payoffChart"></canvas>
+    </div>
+  </div>
+
+  <script>
+  const legsEl = document.getElementById('legs');
+  let chart;
+
+  const round3 = x => Math.round(x * 1000) / 1000;
+
+  function addLeg(kind){
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td>
+        <select class="kind">
+          <option value="${kind}">${kind}</option>
+          <option value="call">call</option>
+          <option value="put">put</option>
+          <option value="stock">stock</option>
+        </select>
+      </td>
+      <td>
+        <select class="action">
+          <option value="buy">buy</option>
+          <option value="sell">sell</option>
+        </select>
+      </td>
+      <td><input class="qty" type="number" step="1" value="1"></td>
+      <td><input class="strike" type="number" step="0.01" value="100"></td>
+      <td><input class="premium" type="number" step="0.01" value="5"></td>
+      <td><button class="btn danger" onclick="this.closest('tr').remove(); plot()">✕</button></td>
+    `;
+    const kindSel = row.querySelector('.kind');
+    const strikeInput = row.querySelector('.strike');
+    function toggleStrike(){
+      const k = kindSel.value;
+      strikeInput.parentElement.style.visibility = (k === 'stock') ? 'hidden' : 'visible';
+    }
+    kindSel.addEventListener('change', toggleStrike);
+    toggleStrike();
+    legsEl.appendChild(row);
+  }
+
+  function payoffForLeg(leg, S, S0){
+    const qty = parseFloat(leg.querySelector('.qty').value) || 0;
+    const action = leg.querySelector('.action').value; // buy=+1, sell=-1
+    const sign = action === 'buy' ? 1 : -1;
+    const kind = leg.querySelector('.kind').value;
+    const premium = parseFloat(leg.querySelector('.premium').value) || 0;
+    const K = parseFloat(leg.querySelector('.strike').value) || 0;
+
+    if(kind === 'call'){
+      const intrinsic = Math.max(0, S - K);
+      return sign * (intrinsic - premium) * qty;
+    }else if(kind === 'put'){
+      const intrinsic = Math.max(0, K - S);
+      return sign * (intrinsic - premium) * qty;
+    }else{ // stock
+      return sign * (S - S0) * qty;
+    }
+  }
+
+  function plot(){
+    const S0 = parseFloat(document.getElementById('S0').value);
+    const Smin = parseFloat(document.getElementById('Smin').value);
+    const Smax = parseFloat(document.getElementById('Smax').value);
+    const npts = Math.max(50, parseInt(document.getElementById('npts').value));
+    const rows = Array.from(legsEl.querySelectorAll('tr'));
+    if(rows.length === 0) return;
+
+    const xs = [];
+    const ys = [];
+    for(let i=0;i<npts;i++){
+      const S = Smin + (Smax - Smin) * i / (npts - 1);
+      xs.push(round3(S));                 // <= 3-dec labels
+      let total = 0;
+      for(const row of rows){ total += payoffForLeg(row, S, S0); }
+      ys.push(round3(total));             // <= 3-dec P&L
+    }
+
+    const ctx = document.getElementById('payoffChart').getContext('2d');
+    if(chart){ chart.destroy(); }
+    chart = new Chart(ctx, {
+      type: 'line',
+      data: { labels: xs, datasets: [{ label: 'Strategy P&L at Expiry', data: ys, borderWidth: 2, fill: false }] },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: true } },
+        scales: {
+          x: { title: { display: true, text: 'Underlying Price at Expiry (Sₜ)' } },
+          y: { title: { display: true, text: 'P&L' } }
+        }
+      }
+    });
+  }
+
+  function clearLegs(){ legsEl.innerHTML=''; }
+  function exampleLongCall(){
+    clearLegs(); document.getElementById('S0').value = 100;
+    addLeg('call'); const r = legsEl.querySelector('tr');
+    r.querySelector('.action').value = 'buy';
+    r.querySelector('.qty').value = 1;
+    r.querySelector('.strike').value = 100;
+    r.querySelector('.premium').value = 5;
+    plot();
+  }
+  function exampleCoveredCall(){
+    clearLegs(); document.getElementById('S0').value = 100;
+    addLeg('stock'); let r1 = legsEl.querySelector('tr');
+    r1.querySelector('.action').value = 'buy'; r1.querySelector('.qty').value = 100;
+    addLeg('call'); let r2 = legsEl.querySelectorAll('tr')[1];
+    r2.querySelector('.action').value = 'sell'; r2.querySelector('.qty').value = 1;
+    r2.querySelector('.strike').value = 105; r2.querySelector('.premium').value = 3;
+    plot();
+  }
+  function exampleProtectivePut(){
+    clearLegs(); document.getElementById('S0').value = 100;
+    addLeg('stock'); let r1 = legsEl.querySelector('tr');
+    r1.querySelector('.action').value = 'buy'; r1.querySelector('.qty').value = 100;
+    addLeg('put'); let r2 = legsEl.querySelectorAll('tr')[1];
+    r2.querySelector('.action').value = 'buy'; r2.querySelector('.qty').value = 1;
+    r2.querySelector('.strike').value = 95; r2.querySelector('.premium').value = 2.5;
+    plot();
+  }
+  function exampleBullCallSpread(){
+    clearLegs(); document.getElementById('S0').value = 100;
+    addLeg('call'); let r1 = legsEl.querySelector('tr');
+    r1.querySelector('.action').value = 'buy'; r1.querySelector('.qty').value = 1;
+    r1.querySelector('.strike').value = 100; r1.querySelector('.premium').value = 5;
+    addLeg('call'); let r2 = legsEl.querySelectorAll('tr')[1];
+    r2.querySelector('.action').value = 'sell'; r2.querySelector('.qty').value = 1;
+    r2.querySelector('.strike').value = 110; r2.querySelector('.premium').value = 2.5;
+    plot();
+  }
+  function exampleStraddle(){
+    clearLegs(); document.getElementById('S0').value = 100;
+    addLeg('call'); let r1 = legsEl.querySelector('tr');
+    r1.querySelector('.action').value = 'buy'; r1.querySelector('.qty').value = 1;
+    r1.querySelector('.strike').value = 100; r1.querySelector('.premium').value = 5;
+    addLeg('put'); let r2 = legsEl.querySelectorAll('tr')[1];
+    r2.querySelector('.action').value = 'buy'; r2.querySelector('.qty').value = 1;
+    r2.querySelector('.strike').value = 100; r2.querySelector('.premium').value = 5;
+    plot();
+  }
+
+  // Initialize with one call leg
+  addLeg('call'); plot();
+</script>
+
+</body>
+</html>

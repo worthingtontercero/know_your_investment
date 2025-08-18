@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Options & Derivatives</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="page">
+    <a class="back-btn" href="/">← Back to Home</a>
+    <h1>Options & Derivatives</h1>
+    <p class="subtitle">High-risk tools with transparent pricing, IV, payoffs, and strategies.</p>
+
+    <div class="tools-grid">
+      <div class="tool-card" onclick="window.location.href='/options/black-scholes'">
+        <h2>Option Pricing (Black–Scholes)</h2>
+        <p>Call/Put pricing with dividends and full Greeks.</p>
+      </div>
+
+      <div class="tool-card" onclick="window.location.href='/options/iv'">
+        <h2>Implied Volatility Finder</h2>
+        <p>Back out σ from a market option price.</p>
+      </div>
+
+      <div class="tool-card" onclick="window.location.href='/options/payoff'">
+        <h2>Strategy Payoff Builder</h2>
+        <p>Combine legs (calls/puts/stock) and plot P&L at expiry.</p>
+      </div>
+
+      <div class="tool-card" onclick="window.location.href='/options/futures'">
+        <h2>Futures Pricing (Cost of Carry)</h2>
+        <p>Compute F₀ = S₀ · exp((r + c − y) · T).</p>
+      </div>
+
+      <div class="tool-card" onclick="window.location.href='/options/greeks'">
+        <h2>Greeks Explorer</h2>
+        <p>Plot Delta, Gamma, Vega, Theta (per day), and Rho vs. underlying price.</p>
+        </div>
+        
+    
+    </div>
+  </div>
+</body>
+</html>

@@ -7,8 +7,9 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  <a class="back back-top" href="/">← Back to Home</a>
-  <a class="back back-top corner-right" href="{{ url_for('stocks_forecast') }}">← Lump-Sum Forecast</a>
+  <!-- Back to Stocks hub -->
+  <a class="back back-top" href="{{ url_for('stocks_home') }}">← Back to Stocks</a>
+
   <h1>Monthly Contributions & Goal Tracker</h1>
 
   <div class="container">
@@ -88,7 +89,6 @@
       <div class="row" style="grid-column: 1 / -1;">
         <div class="btns">
           <button class="btn primary" type="submit">Run DCA Forecast</button>
-          <a class="btn" href="{{ url_for('stocks_home') }}">Stocks Options</a>
         </div>
       </div>
     </form>

@@ -7,7 +7,9 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  <a class="back back-top" href="/">← Back to Home</a>
+  <!-- Top-left: Back to Stocks hub -->
+  <a class="back back-top" href="{{ url_for('stocks_home') }}">← Back to Stocks</a>
+
   <h1>Correlation & Diversification</h1>
 
   <div class="container">
@@ -37,7 +39,6 @@
       <div class="row" style="grid-column: 1 / -1;">
         <div class="btns">
           <button class="btn primary" type="submit">Compute Correlations</button>
-          <a class="btn" href="{{ url_for('stocks_home') }}">← Stocks Options</a>
         </div>
       </div>
     </form>
@@ -85,19 +86,18 @@
               </tr>
             </thead>
             <tbody>
-  {% set n = result.tickers|length %}
-  {% for i in range(n) %}
-    <tr>
-      <th>{{ result.tickers[i] }}</th>
-      {% for j in range(n) %}
-        <td class="{{ result.class_matrix[i][j] }}">
-          {{ result.matrix[i][j] is not none and (result.matrix[i][j]|round(2)) or '—' }}
-        </td>
-      {% endfor %}
-    </tr>
-  {% endfor %}
-</tbody>
-
+              {% set n = result.tickers|length %}
+              {% for i in range(n) %}
+                <tr>
+                  <th>{{ result.tickers[i] }}</th>
+                  {% for j in range(n) %}
+                    <td class="{{ result.class_matrix[i][j] }}">
+                      {{ result.matrix[i][j] is not none and (result.matrix[i][j]|round(2)) or '—' }}
+                    </td>
+                  {% endfor %}
+                </tr>
+              {% endfor %}
+            </tbody>
           </table>
         </div>
 

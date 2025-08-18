@@ -206,3 +206,94 @@ input[type="number"] {
 .matrix td.cpos3 { background: #d0ffd0; } /* >= 0.75 strong positive */
 
 .corner-right { right: 16px; left: auto; }
+/* --- Back to Stocks: consistent pill button (matches DCA page) --- */
+.back { display: inline-block; }
+
+.back-top{
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: 1000;
+
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  padding: 8px 12px;
+  border-radius: 9999px;
+  background: #fff;
+  color: #111;
+  border: 1px solid #ddd;
+  text-decoration: none;
+  font-weight: 600;
+
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  transition: transform .08s ease, box-shadow .12s ease, background .12s ease;
+}
+
+.back-top:hover{
+  text-decoration: none;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.10);
+}
+
+.back-top:active{
+  transform: translateY(0);
+}
+
+.back-top:focus-visible{
+  outline: 2px solid #93c5fd; /* subtle focus ring */
+  outline-offset: 2px;
+}
+
+/* optional: when you do want it on the right */
+.corner-right{ right:16px; left:auto; }
+/* Base layout */
+body { font-family: Arial, sans-serif; text-align: center; background-color: #f5f5f5; margin: 0; padding: 0; }
+h1 { margin-top: 30px; }
+.subtitle { color: #555; margin: 8px 0 24px; }
+.page { max-width: 1000px; margin: 0 auto; padding: 20px; text-align: left; }
+
+/* Home cards */
+.options-container { display: flex; justify-content: center; margin-top: 50px; gap: 30px; flex-wrap: wrap; }
+.option-box { display: block; background: #fff; border: 2px solid #ccc; border-radius: 12px; padding: 20px; width: 260px; cursor: pointer; transition: transform .1s ease, box-shadow .1s ease; }
+.option-box:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.08); }
+.option-box h2{ margin: 0 0 8px; }
+
+/* Buttons & links */
+.back-btn { display: inline-block; margin: 10px 0 20px; text-decoration: none; border: 1px solid #ccc; padding: 8px 12px; border-radius: 10px; background: #fff; color: #000; }
+.btn { display: inline-block; padding: 10px 14px; border-radius: 10px; border: 1px solid #bbb; background: #fff; cursor: pointer; }
+.btn:hover { filter: brightness(0.98); }
+.btn.primary { border-color: #2e67ff; }
+.btn.danger { border-color: #e05a5a; }
+.btn.light { border-color: #ddd; }
+.btn-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+
+/* Hub grid */
+.tools-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.tool-card { background: #fff; border: 2px solid #ccc; border-radius: 12px; padding: 18px; cursor: pointer; }
+.tool-card:hover { box-shadow: 0 6px 16px rgba(0,0,0,0.08); transform: translateY(-2px); }
+
+/* Forms & results */
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; background: #fff; border: 2px solid #ddd; padding: 16px; border-radius: 12px; }
+.form-row { display: flex; flex-direction: column; gap: 6px; }
+.form-row.full { grid-column: 1 / -1; }
+.form-row label { font-weight: bold; }
+.form-row input, .form-row select { padding: 8px 10px; border: 1px solid #ccc; border-radius: 8px; }
+.results { margin-top: 16px; display: grid; gap: 12px; grid-template-columns: 1fr; }
+.results.two-col { grid-template-columns: repeat(auto-fit, minmax(260px,1fr)); }
+.kv { display: flex; justify-content: space-between; background: #fff; border: 1px solid #eee; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+.kv.small { font-size: 0.9rem; color: #555; border-style: dashed; }
+
+/* Payoff builder */
+.builder { display: grid; grid-template-columns: 1fr; gap: 14px; }
+.controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; background: #fff; border: 2px solid #ddd; padding: 12px; border-radius: 12px; }
+.leg-table table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; border: 2px solid #ddd; }
+.leg-table th, .leg-table td { border-bottom: 1px solid #eee; padding: 10px; text-align: left; }
+.leg-table th { background: #fafafa; }
+
+/* Charts */
+.chart-container { margin-top: 20px; background: #fff; border: 2px solid #ddd; border-radius: 12px; padding: 10px; }
+
+/* Utilities */
+.hint { color:#666; font-size: 0.85rem; }

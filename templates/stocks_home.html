@@ -20,44 +20,47 @@
 </head>
 <body>
   <div class="hub-wrap">
-    <a href="{{ url_for('index') }}" class="back">← Back to Home</a>
+    <a class="back back-top" href="/">← Back to Home</a>
     <h1 class="hub-header">Stocks</h1>
     <div class="hub-sub">Pick what you want to do. More tools coming soon.</div>
 
     <!-- Row 1 -->
     <div class="cards">
-      <!-- Trailing Analysis -->
       <a class="card" href="{{ url_for('stocks_trailing') }}">
         <h3>Trailing Analysis</h3>
         <p>3/5/10-year averages + projection</p>
       </a>
 
-      <!-- Forecasting (existing Monte Carlo) -->
       <a class="card" href="{{ url_for('stocks_forecast') }}">
         <h3>Forecasting (Monte Carlo)</h3>
         <p>Probabilistic future value with CAPM blend</p>
       </a>
 
-      <!-- NEW: Sentiment & Monte Carlo (top-right) -->
       <a class="card" href="{{ url_for('stocks_sentiment') }}">
         <h3>Sentiment & Monte Carlo</h3>
         <p>News & opinion–aware forecasting</p>
       </a>
     </div>
 
-    <!-- Row 2: Correlation moved below -->
+    <!-- Row 2 -->
     <div class="cards row-gap">
+      <!-- Col 1 -->
       <a class="card" href="{{ url_for('stocks_correlation') }}">
         <h3>Correlation & Diversification</h3>
         <p>See how your tickers move together</p>
       </a>
-      <!-- NEW: Portfolio Lab -->
-  <a class="card" href="{{ url_for('stocks_portfolio') }}">
-    <h3>Portfolio Lab</h3>
-    <p>Analyze, stress-test & optimize your investments</p>
-  </a>
-</div>
-      <div></div><div></div>
+
+      <!-- Col 2 -->
+      <a class="card" href="{{ url_for('stocks_portfolio') }}">
+        <h3>Portfolio Lab</h3>
+        <p>Optimize weights, VaR/CVaR, frontier & MC</p>
+      </a>
+
+      <!-- Col 3 -->
+      <a class="card" href="{{ url_for('stocks_dca') }}">
+        <h3>DCA & Goal Tracker</h3>
+        <p>Monthly contributions + goal probability</p>
+      </a>
     </div>
   </div>
 </body>
