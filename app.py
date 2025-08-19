@@ -1,14 +1,25 @@
 from __future__ import annotations
-from flask import render_template  # ensure this import exists
+
+import os
+import json
+
 from flask import Flask, render_template, request, jsonify
+from dotenv import load_dotenv
+
 import pandas as pd
 import yfinance as yf
 import numpy as np
-import json, os
-# from dataclasses import dataclass  # not used; safe to remove
 
 # Import Portfolio Lab helper
 from portfolio_utils import analyze_portfolio
+
+# Load environment variables from .env (if present)
+load_dotenv()
+
+app = Flask(__name__)
+app.config.update(
+    SECRET_KEY=os.getenv("SECRET_KEY", "change-me"),
+)
 
 app = Flask(__name__)
 
@@ -771,6 +782,10 @@ def api_portfolio_analyze():
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 # ---------- END Portfolio Lab ----------
+
+@app.route("/health")
+def health():
+    return "OK", 200
 
 # =============== Main ===============
 if __name__ == "__main__":
