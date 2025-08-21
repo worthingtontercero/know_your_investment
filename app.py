@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import json
+from datetime import datetime
 
 from flask import Flask, render_template, request, jsonify
 from dotenv import load_dotenv
@@ -20,8 +21,6 @@ app = Flask(__name__)
 app.config.update(
     SECRET_KEY=os.getenv("SECRET_KEY", "change-me"),
 )
-
-app = Flask(__name__)
 
 # --- Sector mapping to SPDR ETFs (fallback = SPY) ---
 SECTOR_ETFS = {
@@ -330,7 +329,7 @@ def compute_dca_forecast(
         if r_bench is not None:
             beta_val = _estimate_beta(r_stock, r_bench)
 
-    # Monthly CAPM expectation → log mean
+    # Monthly CAPM expectation → log mean (using SPY for beta)
     rf_m  = (1.0 + rf_annual) ** (1.0/12.0) - 1.0
     erp_m = (1.0 + erp_annual) ** (1.0/12.0) - 1.0
     e_capm_m = rf_m + (beta_val if beta_val is not None else 1.0) * erp_m
@@ -388,6 +387,378 @@ def compute_dca_forecast(
         "invested": invested,
         "conf": int(round(target_conf * 100)),
     }
+
+# ---------------------- Pro Forma API (NEW) ----------------------
+
+def _latest_annual(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    yfinance returns statements with columns as period end dates (Timestamp).
+    Keep the most recent 4 annual columns (rightmost) and ensure numeric.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame()
+    cols_sorted = sorted(df.columns, key=lambda x: pd.to_datetime(x))
+    df = df[cols_sorted]
+    df = df.iloc[:, -4:]
+    df = df.apply(pd.to_numeric, errors="coerce").fillna(0.0)
+    return df
+
+def _col_years(df: pd.DataFrame):
+    """Return list of calendar years from the statement cols."""
+    if df is None or df.empty:
+        return []
+    years = []
+    for c in df.columns:
+        try:
+            y = pd.to_datetime(c).year
+        except Exception:
+            y = int(str(c)[:4])
+        years.append(y)
+    return years
+
+def _avg_ratio(numer_series: pd.Series, denom_series: pd.Series, min_obs=1, default=np.nan):
+    """
+    Average ratio across overlapping nonzero observations.
+    """
+    try:
+        df = pd.concat([numer_series, denom_series], axis=1)
+        df.columns = ["num", "den"]
+        df = df.replace([np.inf, -np.inf], np.nan).dropna()
+        df = df[df["den"] != 0]
+        if df.shape[0] >= min_obs:
+            r = (df["num"] / df["den"]).mean()
+            if np.isfinite(r):
+                return float(r)
+        return float(default)
+    except Exception:
+        return float(default)
+
+def _year_labels(last_year: int, h: int):
+    return [str(y) for y in range(last_year, last_year + h + 1)]  # includes Y0 last_year
+
+def _is_finite(x) -> bool:
+    try:
+        return np.isfinite(float(x))
+    except Exception:
+        return False
+
+def _safe_num(x, default=None):
+    """Return float(x) if finite; else default (or None)."""
+    try:
+        fx = float(x)
+        return fx if np.isfinite(fx) else (default if default is not None else None)
+    except Exception:
+        return default if default is not None else None
+
+def _sanitize_json(obj):
+    """
+    Recursively replace NaN/Inf with None so JSON is valid for browsers.
+    Cast numpy types to native Python types.
+    """
+    if isinstance(obj, dict):
+        return {k: _sanitize_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_json(v) for v in obj]
+    if isinstance(obj, (np.floating, np.integer)):
+        obj = obj.item()
+    if isinstance(obj, float):
+        return obj if np.isfinite(obj) else None
+    return obj
+
+
+@app.get("/api/proforma")
+def api_proforma():
+    """
+    Query:
+      - ticker (str)  e.g. ?ticker=MSFT
+      - h (int, horizon, default 5)
+      - wacc (float %, optional override)
+      - payout (float %, optional override)
+      - debtSalesPct (float %, optional: tie debt to % of sales)
+    """
+    ticker = (request.args.get("ticker") or "").upper().strip()
+    h = int(request.args.get("h", 5))
+    wacc_pct = request.args.get("wacc", None)
+    payout_pct = request.args.get("payout", None)
+    debt_sales_pct = request.args.get("debtSalesPct", None)
+
+    if not ticker:
+        return jsonify({"error": "ticker is required"}), 400
+
+    tkr = yf.Ticker(ticker)
+
+    # Financial statements (annual)
+    try:
+        inc = _latest_annual(tkr.financials)              # Income Statement
+        bs  = _latest_annual(tkr.balance_sheet)           # Balance Sheet
+        cf  = _latest_annual(tkr.cashflow)                # Cash Flow
+    except Exception as e:
+        return jsonify({"error": f"Failed to fetch financials for {ticker}: {e}"}), 500
+
+    if inc.empty or bs.empty or cf.empty:
+        return jsonify({"error": f"No sufficient annual data for {ticker}."}), 404
+
+    # Column years (last available fiscal year is Y0 base)
+    years = _col_years(inc) or _col_years(bs) or _col_years(cf)
+    base_year = int(years[-1])  # last reported year
+    labels = _year_labels(base_year, h)  # e.g., ["2024","2025",...,"2029"]
+
+    # Picker with flexible keys
+    def pick(df: pd.DataFrame, candidates):
+        for k in candidates:
+            if k in df.index:
+                return df.loc[k]
+        lk = [i for i in df.index if any(k.lower() in i.lower() for k in candidates)]
+        if lk:
+            return df.loc[lk[0]]
+        return pd.Series([np.nan]*df.shape[1], index=df.columns)
+
+    # Income lines
+    sales = pick(inc, ["Total Revenue", "Revenue", "Sales"])
+    cogs  = pick(inc, ["Cost Of Revenue", "Cost of Revenue", "Cost Of Goods Sold", "Cost of goods sold"])
+    sga   = pick(inc, ["Selling General Administrative", "Selling General & Administrative", "SG&A Expense"])
+    rnd   = pick(inc, ["Research Development", "Research & Development", "R&D"])
+    depis = pick(inc, ["Depreciation Amortization", "Depreciation & Amortization"])
+
+    # CF lines
+    capex = pick(cf, ["Capital Expenditures", "Capital Expenditure"]).abs()
+    chg_wc = pick(cf, ["Change In Working Capital", "Change in Working Capital"])
+
+    # Tax lines
+    tax_exp = pick(inc, ["Income Tax Expense"])
+    pretax  = pick(inc, ["Income Before Tax", "Pretax Income"])
+
+    # Interest / debt
+    int_exp = pick(inc, ["Interest Expense", "Interest Expense Non Operating"])
+    st_debt = pick(bs, ["Short Long Term Debt", "Short Term Debt", "Short/Current Portion Of Long Term Debt"])
+    lt_debt = pick(bs, ["Long Term Debt", "Long Term Debt Noncurrent", "Long-term Debt"])
+    total_debt = st_debt.add(lt_debt, fill_value=0)
+
+    # Balance seeds
+    cash  = pick(bs, ["Cash And Cash Equivalents", "Cash And Short Term Investments", "Cash"])
+    ppe   = pick(bs, ["Property Plant Equipment", "Property, Plant & Equipment Net", "Net PPE"])
+    curr_assets = pick(bs, ["Total Current Assets"])
+    curr_liab   = pick(bs, ["Total Current Liabilities"])
+    equity_line = pick(bs, ["Total Stockholder Equity", "Stockholders Equity"])
+
+    # Shares
+    try:
+        shares_out = float(tkr.info.get("sharesOutstanding") or tkr.fast_info.get("shares_outstanding") or np.nan)
+    except Exception:
+        shares_out = np.nan
+    if not _is_finite(shares_out) or shares_out <= 0:
+        shares_out = 1.0
+    # ---------- derive drivers (3Y avg when possible) ----------
+    cogs_pct   = _avg_ratio(cogs,  sales, min_obs=1, default=np.nan)
+    sga_pct    = _avg_ratio(sga,   sales, min_obs=1, default=np.nan)
+    rnd_pct    = _avg_ratio(rnd,   sales, min_obs=1, default=np.nan)
+    dep_pct    = _avg_ratio(depis, sales, min_obs=1, default=np.nan)
+    capex_pct  = _avg_ratio(capex, sales, min_obs=1, default=np.nan)
+
+
+    # ΔNWC as % of ΔSales: use last diffs if available
+    try:
+        dsales = sales.diff().dropna()
+        dnwc  = chg_wc.dropna() * -1  # CF sign -> +build
+        nwc_pct = _avg_ratio(dnwc.reindex(dsales.index), dsales, min_obs=1, default=np.nan)
+    except Exception:
+        nwc_pct = np.nan
+
+    # Effective tax rate
+    tax_rate = _avg_ratio(tax_exp, pretax.replace(0, np.nan), min_obs=1, default=np.nan)
+
+    # ---- FALLBACKS if any are NaN/Inf ----
+    cogs_pct  = cogs_pct  if _is_finite(cogs_pct)  else 0.55
+    sga_pct   = sga_pct   if _is_finite(sga_pct)   else 0.25
+    rnd_pct   = rnd_pct   if _is_finite(rnd_pct)   else 0.01
+    dep_pct   = dep_pct   if _is_finite(dep_pct)   else 0.03
+    capex_pct = capex_pct if _is_finite(capex_pct) else 0.04
+    nwc_pct   = nwc_pct   if _is_finite(nwc_pct)   else 0.08
+    tax_rate  = min(max(tax_rate if _is_finite(tax_rate) else 0.21, 0.0), 0.35)
+
+    # Interest rate proxy
+    debt_avg = total_debt.rolling(2).mean().iloc[-1] if total_debt.shape[0] >= 2 else total_debt.iloc[-1]
+    interest_rate = _safe_num(abs(int_exp.iloc[-1]) / debt_avg, 0.05) if (pd.notna(debt_avg) and debt_avg > 1) else 0.05
+
+    # Debt as % of sales (optional tie)
+    debt_sales_ratio = _safe_num(total_debt.iloc[-1] / sales.iloc[-1], 0.0) if (pd.notna(total_debt.iloc[-1]) and sales.iloc[-1] != 0) else 0.0
+
+    # Payout ratio
+    dividends = pick(cf, ["Cash Dividends Paid"])
+    ni = pick(inc, ["Net Income", "Net Income Common Stockholders"])
+    payout_ratio = _avg_ratio(dividends.abs(), ni.where(ni > 0), min_obs=1, default=0.35)
+    payout_ratio = min(max(payout_ratio, 0.0), 0.8)
+
+    # Base seeds (Y0)
+    sales0 = float(sales.iloc[-1])
+    cash0  = float(cash.iloc[-1]) if pd.notna(cash.iloc[-1]) else 0.0
+    ppe0   = float(ppe.iloc[-1]) if pd.notna(ppe.iloc[-1]) else 0.0
+    nwc0   = float(curr_assets.iloc[-1] - curr_liab.iloc[-1]) if (pd.notna(curr_assets.iloc[-1]) and pd.notna(curr_liab.iloc[-1])) else 0.0
+    eq0    = float(equity_line.iloc[-1]) if pd.notna(equity_line.iloc[-1]) else max(0.0, (sales0*0.2))
+    debt0  = float(total_debt.iloc[-1]) if pd.notna(total_debt.iloc[-1]) else 0.0
+
+    # Optional overrides from query
+    if wacc_pct is not None:
+        try: wacc = float(wacc_pct)/100.0
+        except: wacc = 0.08
+    else:
+        wacc = 0.08
+
+    if payout_pct is not None:
+        try: payout_ratio = min(max(float(payout_pct)/100.0, 0.0), 0.9)
+        except: pass
+
+    if debt_sales_pct is not None:
+        try: debt_sales_ratio = max(float(debt_sales_pct)/100.0, 0.0)
+        except: pass
+
+    # Growth: last YoY if available, else 5%
+    try:
+        recent_growth = float((sales.iloc[-1] - sales.iloc[-2]) / sales.iloc[-2])
+        g = recent_growth if np.isfinite(recent_growth) else 0.05
+        g = float(np.clip(g, -0.10, 0.25))
+    except Exception:
+        g = 0.05
+
+    # Shares fallback
+    if not np.isfinite(shares_out) or shares_out <= 0:
+        shares_out = 1.0  # avoid div by zero
+
+    # ---------- Build forecast ----------
+    H = int(h)
+    Sales=[sales0]; COGS=[]; SGA=[]; RND=[]; Dep=[]; EBITDA=[]; EBIT=[]
+    Interest=[]; EBT=[]; Taxes=[]; NI_=[]; Div_=[]; RE=[]
+    CapEx=[]; dNWC=[]
+    NWC=[nwc0]; PPE=[ppe0]; Debt=[debt0]; Cash=[cash0]; Equity=[eq0]
+    CFO=[]; CFI=[]; CFF=[]; FCFu=[]
+
+    # Y0 IS (display)
+    COGS.append(sales0*cogs_pct)
+    SGA.append(sales0*sga_pct)
+    RND.append(sales0*rnd_pct)
+    Dep.append(sales0*dep_pct)
+    EBITDA.append(sales0 - COGS[0] - SGA[0] - RND[0])
+    EBIT.append(EBITDA[0] - Dep[0])
+    Interest.append(Debt[0]*interest_rate)
+    EBT.append(EBIT[0] - Interest[0])
+    Taxes.append(max(0.0, EBT[0]) * tax_rate)
+    NI_.append(EBT[0] - Taxes[0])
+    Div_.append(max(0.0, NI_[0]*payout_ratio))
+    RE.append(NI_[0] - Div_[0])
+    Equity[0] = Equity[0] + RE[0]
+
+    for t in range(1, H+1):
+        Sales.append(Sales[t-1]*(1+g))
+
+        c = Sales[t]*cogs_pct
+        s = Sales[t]*sga_pct
+        r = Sales[t]*rnd_pct
+        d = Sales[t]*dep_pct
+        COGS.append(c); SGA.append(s); RND.append(r); Dep.append(d)
+        ebitda = Sales[t] - c - s - r
+        EBITDA.append(ebitda)
+        ebit = ebitda - d
+        EBIT.append(ebit)
+
+        delta_sales = Sales[t] - Sales[t-1]
+        dnw = delta_sales * nwc_pct
+        dNWC.append(dnw)
+        NWC.append(NWC[t-1] + dnw)
+
+        cap = Sales[t] * capex_pct
+        CapEx.append(cap)
+        PPE.append(PPE[t-1] + cap - d)
+
+        if debt_sales_ratio > 0:
+            Debt.append(Sales[t]*debt_sales_ratio)
+        else:
+            Debt.append(Debt[t-1])
+        interest = Debt[t]*interest_rate
+        Interest.append(interest)
+
+        ebt = ebit - interest
+        EBT.append(ebt)
+        tax_amt = max(0.0, ebt) * tax_rate
+        Taxes.append(tax_amt)
+        ni = ebt - tax_amt
+        NI_.append(ni)
+
+        div = max(0.0, ni*payout_ratio)
+        Div_.append(div)
+        re = ni - div
+        RE.append(re)
+        Equity.append(Equity[t-1] + re)
+
+        fcfu = ebit*(1 - tax_rate) + d - cap - dnw
+        FCFu.append(fcfu)
+
+        non_cash_assets = NWC[t] + PPE[t]
+        Cash.append(Debt[t] + Equity[t] - non_cash_assets)
+
+        CFO.append(ni + d - dnw)
+        CFI.append(-cap)
+        CFF.append((Debt[t] - Debt[t-1]) - div)
+
+    def _fmt(arr, d=0): 
+        out=[]
+        for a in arr:
+            if a is None or (isinstance(a,float) and not np.isfinite(a)):
+                out.append(None)
+            else:
+                out.append(round(float(a), d))
+        return out
+
+    payload = {
+        "ticker": ticker,
+        "base_year": base_year,
+        "years": [str(y) for y in range(base_year, base_year + H + 1)],
+        "shares_out": shares_out,
+        "drivers": {
+            "growth": float(g),
+            "cogs_pct": float(cogs_pct),
+            "sga_pct": float(sga_pct),
+            "rnd_pct": float(rnd_pct),
+            "dep_pct": float(dep_pct),
+            "capex_pct": float(capex_pct),
+            "nwc_pct": float(nwc_pct),
+            "tax_rate": float(tax_rate),
+            "interest_rate": float(interest_rate),
+            "payout_ratio": float(payout_ratio),
+            "debt_sales_ratio": float(debt_sales_ratio),
+            "wacc": float(wacc),
+        },
+        "is": {
+            "sales": _fmt(Sales, 0),
+            "cogs": _fmt(COGS, 0),
+            "sga": _fmt(SGA, 0),
+            "rnd": _fmt(RND, 0),
+            "dep": _fmt(Dep, 0),
+            "ebitda": _fmt(EBITDA, 0),
+            "ebit": _fmt(EBIT, 0),
+            "interest": _fmt(Interest, 0),
+            "taxes": _fmt(Taxes, 0),
+            "net_income": _fmt(NI_, 0),
+            "eps": _fmt([ni/shares_out if shares_out>0 else np.nan for ni in NI_], 4),
+        },
+        "bs": {
+            "cash": _fmt(Cash, 0),
+            "nwc": _fmt(NWC, 0),
+            "ppe": _fmt(PPE, 0),
+            "assets": _fmt([Cash[i]+NWC[i]+PPE[i] for i in range(0, H+1)], 0),
+            "debt": _fmt(Debt, 0),
+            "equity": _fmt(Equity, 0),
+            "liab_equity": _fmt([Debt[i]+Equity[i] for i in range(0, H+1)], 0),
+        },
+        "cf": {
+            "cfo": _fmt([0]+CFO, 0),
+            "cfi": _fmt([0]+CFI, 0),
+            "cff": _fmt([0]+CFF, 0),
+            "delta_cash": _fmt([ ( ([0]+CFO)[i] + ([0]+CFI)[i] + ([0]+CFF)[i] ) for i in range(0, H+1) ], 0),
+            "fcf_unlevered": _fmt([0]+FCFu, 0)
+        }
+    }
+    return jsonify(_sanitize_json(payload))
+
 
 # =============== Routes ===============
 @app.route('/options-derivatives')
@@ -763,6 +1134,11 @@ def stocks_forecast():
 def stocks_portfolio():
     return render_template("stocks_portfolio.html")
 
+# --- Pro Forma page (frontend template) ---
+@app.route("/proforma")
+def proforma():
+    return render_template("proforma.html")
+
 @app.route("/api/portfolio/analyze", methods=["POST"])
 def api_portfolio_analyze():
     try:
@@ -789,5 +1165,4 @@ def health():
 
 # =============== Main ===============
 if __name__ == "__main__":
-     
     app.run(debug=True)

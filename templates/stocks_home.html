@@ -8,14 +8,22 @@
     .hub-wrap { max-width: 1100px; margin: 0 auto; padding: 32px 16px; }
     .hub-header { text-align: center; margin-bottom: 8px; font-size: 32px; font-weight: 700; }
     .hub-sub { text-align: center; color: #6b7280; margin-bottom: 28px; }
-    .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; }
-    .card { background: #fff; border-radius: 14px; box-shadow: 0 3px 14px rgba(0,0,0,.06); border: 1px solid #e5e7eb; padding: 24px; text-align: center; transition: transform .08s ease, box-shadow .12s ease; text-decoration: none; color: inherit; }
+    /* ✅ One grid that auto-wraps nicely */
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 28px;
+    }
+    .card {
+      background: #fff; border-radius: 14px; box-shadow: 0 3px 14px rgba(0,0,0,.06);
+      border: 1px solid #e5e7eb; padding: 24px; text-align: center;
+      transition: transform .08s ease, box-shadow .12s ease;
+      text-decoration: none; color: inherit;
+    }
     .card:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(0,0,0,.08); }
     .card h3 { margin: 0 0 8px; font-size: 20px; }
     .card p { margin: 0; color: #6b7280; font-size: 14px; }
-    .row-gap { margin-top: 6px; }
     .back { display:inline-block; margin: 16px 0; color:#111827; text-decoration:none; border:1px solid #e5e7eb; border-radius:10px; padding:8px 12px; }
-    @media (max-width: 900px) { .cards { grid-template-columns: 1fr; } .row-gap { margin-top: 18px; } }
   </style>
 </head>
 <body>
@@ -24,7 +32,7 @@
     <h1 class="hub-header">Stocks</h1>
     <div class="hub-sub">Pick what you want to do. More tools coming soon.</div>
 
-    <!-- Row 1 -->
+    <!-- ✅ Single unified grid -->
     <div class="cards">
       <a class="card" href="{{ url_for('stocks_trailing') }}">
         <h3>Trailing Analysis</h3>
@@ -40,26 +48,26 @@
         <h3>Sentiment & Monte Carlo</h3>
         <p>News & opinion–aware forecasting</p>
       </a>
-    </div>
 
-    <!-- Row 2 -->
-    <div class="cards row-gap">
-      <!-- Col 1 -->
       <a class="card" href="{{ url_for('stocks_correlation') }}">
         <h3>Correlation & Diversification</h3>
         <p>See how your tickers move together</p>
       </a>
 
-      <!-- Col 2 -->
       <a class="card" href="{{ url_for('stocks_portfolio') }}">
         <h3>Portfolio Lab</h3>
         <p>Optimize weights, VaR/CVaR, frontier & MC</p>
       </a>
 
-      <!-- Col 3 -->
       <a class="card" href="{{ url_for('stocks_dca') }}">
         <h3>DCA & Goal Tracker</h3>
         <p>Monthly contributions + goal probability</p>
+      </a>
+
+      <!-- ✅ Pro Forma tile uses the same .card style -->
+      <a class="card" href="{{ url_for('proforma') }}">
+        <h3>Pro Forma Builder</h3>
+        <p>Forecast IS, BS, CF & key ratios</p>
       </a>
     </div>
   </div>

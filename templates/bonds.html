@@ -7,22 +7,13 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <a class="back back-top" href="/">← Back to Home</a>
+  <a class="back back-top" href="/">← Back to Home</a>
 
   <h1>Bond Analysis</h1>
 
   <div class="container">
     <!-- Inputs -->
     <div class="grid">
-      <div class="row">
-        <label class="label" for="bond-type">Bond Type</label>
-        <select id="bond-type" class="select">
-          <option value="standard">Standard (fixed coupon)</option>
-          <option value="european">European (annual coupon)</option>
-          <option value="zero">Zero-coupon</option>
-        </select>
-      </div>
-
       <div class="row">
         <label class="label" for="face">Face Value</label>
         <input id="face" class="input" type="number" value="1000" step="50">
@@ -63,7 +54,6 @@
     <div class="btns">
       <button class="btn primary" id="btn-price">Compute Present Value (given YTM)</button>
       <button class="btn" id="btn-ytm">Compute YTM (given Price)</button>
-     
     </div>
 
     <!-- Stats -->
@@ -103,7 +93,7 @@
 
     function ytmFromPrice(face, couponPerPeriod, periods, price, freq) {
       // bisection on annualized yield in [0%, 100%]
-      let lo = 0, hi = 1.0; // 0.00 to 1.00 (i.e., 0% to 100%)
+      let lo = 0, hi = 1.0; 
       const target = price;
       for (let i = 0; i < 80; i++) {
         const mid = (lo + hi) / 2;
@@ -119,18 +109,14 @@
       const couponPct = Number($('coupon').value);
       const years = Number($('years').value);
       const freq = Number($('freq').value);
-      const type = $('bond-type').value;
 
-      const periods = Math.round(years * (type === 'european' ? 1 : freq));
-      const effectiveFreq = (type === 'european') ? 1 : freq;
-
-      const couponPerPeriod =
-        type === 'zero' ? 0 : (face * (couponPct / 100)) / effectiveFreq;
+      const periods = Math.round(years * freq);
+      const couponPerPeriod = (face * (couponPct / 100)) / freq;
 
       $('stat-cpn').textContent = '$' + round(couponPerPeriod, 2);
       $('stat-n').textContent = periods;
 
-      return { face, couponPct, years, freq: effectiveFreq, periods, couponPerPeriod };
+      return { face, couponPct, years, freq, periods, couponPerPeriod };
     }
 
     function updateCurrentYield() {

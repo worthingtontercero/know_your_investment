@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Pro Forma Builder — Know Your Investment</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <style>
+    :root { --muted:#6b7280; --border:#e5e7eb; }
+    body { background:#fafafa; }
+    .wrap { max-width:1200px; margin:0 auto; padding:24px 16px; }
+    .note{color:var(--muted)}
+    .grid { display:grid; gap:12px; grid-template-columns: repeat(3, minmax(220px,1fr)); }
+    .row { display:flex; align-items:center; gap:10px; }
+    .label{width:48%}
+    .input{width:52%}
+    .section{margin:28px 0}
+    .cards{display:grid; grid-template-columns: repeat(3,1fr); gap:16px}
+    .card{background:#fff;border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:0 4px 14px rgba(0,0,0,.03)}
+    .card h3{margin:0 0 6px 0}
+    table{width:100%; border-collapse:collapse; font-size:.95rem}
+    th,td{border-bottom:1px solid #eee; padding:8px 10px; text-align:right}
+    th:first-child, td:first-child{text-align:left; white-space:nowrap}
+    .btns{display:flex; flex-wrap:wrap; gap:10px; margin:14px 0}
+    .btn{cursor:pointer; padding:10px 14px; border-radius:10px; border:1px solid #111; background:#111; color:#fff}
+    .btn.secondary{background:#fff;color:#111}
+    .stamp{color:var(--muted); font-size:.9rem}
+    .err{display:none; background:#fee2e2; color:#7f1d1d; border:1px solid #fecaca; padding:10px 12px; border-radius:10px; margin:10px 0}
+    @media (max-width: 980px){ .grid{grid-template-columns:1fr} .cards{grid-template-columns:1fr} }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <a class="back back-top" href="/stocks">← Back to Stocks</a>
+    <h1>Pro Forma Builder</h1>
+    <p class="note">
+      Auto‑fetches latest annuals, derives drivers (3‑yr avg), and forecasts forward with calendar year labels.
+      You can override a few settings below.
+    </p>
+    <div id="err" class="err"></div>
+
+    <!-- Minimal inputs -->
+    <div class="section">
+      <h2>Inputs</h2>
+      <div class="grid" id="assumptions">
+        <div class="row"><label class="label">Ticker</label><input id="ticker" class="input" type="text" value="KO"></div>
+        <div class="row"><label class="label">Horizon (years)</label><input id="h" class="input" type="number" value="5" step="1"></div>
+        <div class="row"><label class="label">WACC (%) override</label><input id="wacc" class="input" type="number" value="8" step="0.25"></div>
+
+        <div class="row"><label class="label">Payout Ratio (%) override</label><input id="payout" class="input" type="number" value="" placeholder="(blank = auto)"></div>
+        <div class="row"><label class="label">Debt as % of Sales (tie)</label><input id="debtSalesPct" class="input" type="number" value="" placeholder="(blank = auto)"></div>
+      </div>
+
+      <div class="btns">
+        <button class="btn" id="computeBtn">Run Forecast</button>
+        <button class="btn secondary" id="exportCsv">Export CSV</button>
+        <span class="stamp" id="stamp"></span>
+      </div>
+    </div>
+
+    <!-- Outputs -->
+    <div class="section cards">
+      <div class="card">
+        <h3>Income Statement (Forecast)</h3>
+        <div class="note">Revenue → Net Income</div>
+        <table id="isTable"></table>
+      </div>
+      <div class="card">
+        <h3>Balance Sheet (Forecast)</h3>
+        <div class="note">Cash is plug; Debt fixed or % of Sales</div>
+        <table id="bsTable"></table>
+      </div>
+      <div class="card">
+        <h3>Cash Flows (Forecast)</h3>
+        <div class="note">Unlevered FCF & cash movement</div>
+        <table id="cfTable"></table>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="card">
+        <h3>Key Ratios</h3>
+        <div class="note">Profitability • Efficiency • Leverage • Liquidity</div>
+        <table id="ratiosTable"></table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function(){
+    const $ = (id) => document.getElementById(id);
+    const fmt = (x, d=0) => (x===null||x===undefined) ? "—" : (Math.round(x*Math.pow(10,d))/Math.pow(10,d)).toLocaleString(undefined,{maximumFractionDigits:d});
+    const err = (m) => { const e=$('err'); if(!m){e.style.display='none'; e.textContent='';} else {e.style.display='block'; e.textContent=m;} };
+    const mountTable = (id, header, rows) => {
+      const el = $(id);
+      let html = "<tr>"+header.map(h=>`<th>${h}</th>`).join("")+"</tr>";
+      rows.forEach(r => html += "<tr>"+r.map((c,i)=> i? `<td>${c}</td>`:`<td><b>${c}</b></td>`).join("")+"</tr>");
+      el.innerHTML = html;
+    };
+
+    async function run(){
+      try{
+        err('');
+        const ticker = $('ticker').value.trim().toUpperCase();
+        const h = parseInt($('h').value || '5', 10);
+        const q = new URLSearchParams({ ticker, h: String(h) });
+
+        const wacc = $('wacc').value.trim();
+        if (wacc) q.set('wacc', wacc);
+        const payout = $('payout').value.trim();
+        if (payout) q.set('payout', payout);
+        const debtSalesPct = $('debtSalesPct').value.trim();
+        if (debtSalesPct) q.set('debtSalesPct', debtSalesPct);
+
+        const r = await fetch(`/api/proforma?${q.toString()}`);
+        if(!r.ok){
+          const j = await r.json().catch(()=>({error:`HTTP ${r.status}`}));
+          throw new Error(j.error || `HTTP ${r.status}`);
+        }
+        const data = await r.json();
+
+        const Y = data.years; // ["2024","2025",...]
+        const is = data.is, bs = data.bs, cf = data.cf;
+
+        // IS
+        mountTable("isTable", ["", ...Y], [
+          ["Sales",        ...is.sales.map(v=>fmt(v,0))],
+          ["COGS",         ...is.cogs.map(v=>fmt(-v,0))],
+          ["SG&A",         ...is.sga.map(v=>fmt(-v,0))],
+          ["R&D",          ...is.rnd.map(v=>fmt(-v,0))],
+          ["Depreciation", ...is.dep.map(v=>fmt(-v,0))],
+          ["EBITDA",       ...is.ebitda.map(v=>fmt(v,0))],
+          ["EBIT",         ...is.ebit.map(v=>fmt(v,0))],
+          ["Interest",     ...is.interest.map(v=>fmt(-v,0))],
+          ["Taxes",        ...is.taxes.map(v=>fmt(-v,0))],
+          ["Net Income",   ...is.net_income.map(v=>fmt(v,0))],
+          ["EPS",          ...is.eps.map(v=>fmt(v,2))],
+        ]);
+
+        // BS
+        mountTable("bsTable", ["", ...Y], [
+          ["Cash",                ...bs.cash.map(v=>fmt(v,0))],
+          ["Net Working Capital", ...bs.nwc.map(v=>fmt(v,0))],
+          ["PPE (net)",           ...bs.ppe.map(v=>fmt(v,0))],
+          ["Total Assets",        ...bs.assets.map(v=>fmt(v,0))],
+          ["Debt",                ...bs.debt.map(v=>fmt(v,0))],
+          ["Equity",              ...bs.equity.map(v=>fmt(v,0))],
+          ["Liabilities + Equity",...bs.liab_equity.map(v=>fmt(v,0))],
+        ]);
+
+        // CF
+        mountTable("cfTable", ["", ...Y], [
+          ["CFO",        ...cf.cfo.map(v=>fmt(v,0))],
+          ["CFI",        ...cf.cfi.map(v=>fmt(v,0))],
+          ["CFF",        ...cf.cff.map(v=>fmt(v,0))],
+          ["ΔCash",      ...cf.delta_cash.map(v=>fmt(v,0))],
+          ["Unlevered FCF", ...cf.fcf_unlevered.map(v=>fmt(v,0))],
+        ]);
+
+        // Ratios (front-end)
+        const assets = bs.assets;
+        const gm = is.sales.map((s,i)=> s ? (s - is.cogs[i]) / s : null);
+        const ebitm = is.sales.map((s,i)=> s ? is.ebit[i]/s : null);
+        const nm = is.sales.map((s,i)=> s ? is.net_income[i]/s : null);
+        const roe = bs.equity.map((e,i)=> e ? is.net_income[i]/e : null);
+        const roa = assets.map((a,i)=> a ? is.net_income[i]/a : null);
+        const de  = bs.equity.map((e,i)=> e ? bs.debt[i]/e : null);
+        const icov= is.interest.map((iv,i)=> (iv && Math.abs(iv)>1e-9) ? is.ebit[i]/Math.abs(iv) : null);
+        const curr= bs.nwc.map((n,i)=> n ? ( (bs.cash[i]||0) + (n||0) ) / Math.abs(n) : null);
+        const at  = assets.map((a,i)=> a ? is.sales[i]/a : null);
+
+        const pct = (x)=> x==null ? "—" : fmt(x*100,2)+"%";
+        const rat = (x)=> x==null ? "—" : fmt(x,2);
+
+        mountTable("ratiosTable", ["", ...Y], [
+          ["Gross Margin", ...gm.map(pct)],
+          ["EBIT Margin",  ...ebitm.map(pct)],
+          ["Net Margin",   ...nm.map(pct)],
+          ["ROE",          ...roe.map(pct)],
+          ["ROA",          ...roa.map(pct)],
+          ["Debt / Equity",...de.map(rat)],
+          ["Interest Coverage", ...icov.map(rat)],
+          ["Current Ratio (approx.)", ...curr.map(rat)],
+          ["Asset Turnover", ...at.map(rat)],
+        ]);
+
+        $('stamp').textContent = `Last computed: ${new Date().toLocaleTimeString()}`;
+      }catch(e){
+        console.error(e);
+        err(e.message || "Failed to compute pro forma");
+      }
+    }
+
+    function exportCsv(){
+      const ids = ["isTable","bsTable","cfTable","ratiosTable"];
+      const lines=[];
+      ids.forEach(id=>{
+        const t=$(id);
+        const rows=[...t.querySelectorAll("tr")].map(tr=>
+          [...tr.children].map(td=>`"${td.textContent.replace(/"/g,'""')}"`).join(",")
+        );
+        lines.push(rows.join("\n")); lines.push("");
+      });
+      const blob = new Blob([lines.join("\n")], {type:"text/csv;charset=utf-8;"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href=url; a.download="proforma.csv"; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    window.addEventListener("DOMContentLoaded", ()=>{
+      $('computeBtn').addEventListener('click', run);
+      $('exportCsv').addEventListener('click', exportCsv);
+      document.querySelectorAll('#assumptions input').forEach(inp=>{
+        inp.addEventListener('keyup', e=>{ if(e.key==='Enter') run(); });
+      });
+      run(); // initial
+    });
+  })();
+  </script>
+</body>
+</html>
