@@ -14,14 +14,7 @@
   <div class="container">
     <!-- Inputs -->
     <div class="grid">
-      <div class="row">
-        <label class="label" for="bond-type">Bond Type</label>
-        <select id="bond-type" class="select">
-          <option value="standard">Standard (fixed coupon)</option>
-          <option value="european">European (annual coupon)</option>
-          <option value="zero">Zero-coupon</option>
-        </select>
-      </div>
+     
 
       <div class="row">
         <label class="label" for="face">Face Value</label>
@@ -114,24 +107,21 @@
       return (lo + hi) / 2;
     }
 
-    function computeDerived() {
-      const face = Number($('face').value);
-      const couponPct = Number($('coupon').value);
-      const years = Number($('years').value);
-      const freq = Number($('freq').value);
-      const type = $('bond-type').value;
+   function computeDerived() {
+  const face = Number($('face').value);
+  const couponPct = Number($('coupon').value);
+  const years = Number($('years').value);
+  const freq = Number($('freq').value);
 
-      const periods = Math.round(years * (type === 'european' ? 1 : freq));
-      const effectiveFreq = (type === 'european') ? 1 : freq;
+  const periods = Math.round(years * freq);
+  const couponPerPeriod = (face * (couponPct / 100)) / freq;
 
-      const couponPerPeriod =
-        type === 'zero' ? 0 : (face * (couponPct / 100)) / effectiveFreq;
+  $('stat-cpn').textContent = '$' + round(couponPerPeriod, 2);
+  $('stat-n').textContent = periods;
 
-      $('stat-cpn').textContent = '$' + round(couponPerPeriod, 2);
-      $('stat-n').textContent = periods;
+  return { face, couponPct, years, freq, periods, couponPerPeriod };
+}
 
-      return { face, couponPct, years, freq: effectiveFreq, periods, couponPerPeriod };
-    }
 
     function updateCurrentYield() {
       const { face, couponPct } = computeDerived();
