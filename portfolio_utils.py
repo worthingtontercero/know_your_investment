@@ -93,15 +93,20 @@ def _clean_weights(w: np.ndarray) -> np.ndarray:
     s = w.sum()
     return w / s if s > 0 else np.ones_like(w) / len(w)
 
-def optimize_max_sharpe(mu_daily: pd.Series, cov_daily: pd.DataFrame, rf_annual: float) -> np.ndarray:
+def optimize_max_sharpe(mu_daily: pd.Series, cov_daily: pd.DataFrame, rf_annual: float,
+                        max_weight: float | None = None) -> np.ndarray:
     n = len(mu_daily.values)
+    # Default cap: equal-weight + 50% buffer (e.g. 4 stocks → max 37.5%), floor at 10%
+    cap = max_weight if max_weight is not None else max(1.0 / n * 1.5, 0.10)
+    cap = min(cap, 1.0)
+
     def neg_sharpe(x):
         w = _clean_weights(np.array(x))
         exp_a, vol_a, sh = portfolio_annualized_stats(w, mu_daily.values, cov_daily.values, rf_annual)
         return -sh
     x0 = np.ones(n)/n
     cons = ({'type':'eq', 'fun': lambda x: np.sum(np.clip(x, 0, None)) - 1.0},)
-    bnds = [(0.0, 1.0)] * n
+    bnds = [(0.0, cap)] * n   # <-- cap per position
     res = minimize(neg_sharpe, x0, bounds=bnds, constraints=cons, method='SLSQP', options={'maxiter': 500})
     return _clean_weights(res.x)
 
@@ -121,7 +126,8 @@ def efficient_frontier(mu_daily: pd.Series, cov_daily: pd.DataFrame, points: int
             {'type':'eq', 'fun': lambda x: np.sum(np.clip(x,0,None)) - 1.0},
             {'type':'eq', 'fun': lambda x: (1 + (mu_daily.values @ _clean_weights(np.array(x))))**td - 1 - tr}
         )
-        bnds = [(0.0,1.0)]*n
+        cap = max(1.0/n*1.5, 0.10)
+        bnds = [(0.0, cap)] * n
         x0 = np.ones(n)/n
         try:
             res = minimize(obj, x0, bounds=bnds, constraints=cons, method='SLSQP', options={'maxiter':500})
@@ -243,7 +249,7 @@ def analyze_portfolio(tickers: str, weights_pct: str, start: str, rf_annual: flo
     var_ann, cvar_ann = var_cvar(pd.Series(port_ret_daily), conf=conf)
 
     # Optimization + EF
-    w_maxs = optimize_max_sharpe(mu_series, cov_df, rf_annual)
+    w_maxs = optimize_max_sharpe(mu_series, cov_df, rf_annual, max_weight=max(1.0/len(tick_list)*1.5, 0.10))
     exp_o, vol_o, sharpe_o = portfolio_annualized_stats(w_maxs, mu_series.values, cov_df.values, rf_annual)
     ef_vol, ef_ret = efficient_frontier(mu_series, cov_df, points=30, rf_annual=rf_annual)
 
